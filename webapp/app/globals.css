@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f6f7fb;
+  --card: #ffffff;
+  --text: #1b1d2a;
+  --accent: #0ea5e9;
+  --accent-2: #22c55e;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(14, 165, 233, 0.14), transparent 30%),
+    radial-gradient(circle at 85% 10%, rgba(34, 197, 94, 0.12), transparent 30%),
+    var(--bg);
+  color: var(--text);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+.shell {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(10, 20, 50, 0.08);
+  padding: 20px;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.button {
+  border: none;
+  border-radius: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.button.primary {
+  background: var(--accent);
+  color: white;
+}
+
+.button.secondary {
+  background: #eaf7fd;
+  color: #0369a1;
+}
+
+.button.success {
+  background: #eafaf0;
+  color: #15803d;
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.nav a {
+  text-decoration: none;
+  color: #0f172a;
+  background: white;
+  padding: 8px 12px;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+}

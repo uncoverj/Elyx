@@ -1,0 +1,75 @@
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class ProfileIn(BaseModel):
+    nickname: str = Field(min_length=2, max_length=64)
+    gender: str
+    age: int = Field(ge=13, le=99)
+    game_id: int
+    bio: str = Field(min_length=10, max_length=400)
+    media_type: str
+    media_file_id: str
+    roles: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+
+
+class StatsIn(BaseModel):
+    kd: float | None = None
+    winrate: float | None = None
+    rank_name: str | None = None
+    rank_points: int | None = None
+    source: str = "manual"
+    verified: bool = False
+
+
+class ProfileOut(BaseModel):
+    user_id: int
+    tg_id: int
+    username: str | None
+    nickname: str
+    gender: str
+    age: int
+    game_id: int
+    game_name: str
+    bio: str
+    media_type: str
+    media_file_id: str
+    roles: list[str]
+    tags: list[str]
+    trust_up: int
+    trust_down: int
+    trust_score: float
+    stats: StatsIn | None = None
+
+
+class ActionTarget(BaseModel):
+    target_user_id: int
+
+
+class LetterIn(ActionTarget):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class MatchOut(BaseModel):
+    match_id: int
+    user_id: int
+    nickname: str
+    username: str | None
+    game_name: str
+    created_at: datetime
+
+
+class LinkAccountIn(BaseModel):
+    account_ref: str = Field(min_length=2, max_length=128)
+
+
+class TrustVoteIn(ActionTarget):
+    value: int
+
+
+class SearchCandidate(BaseModel):
+    user_id: int
+    score: float
+    profile: ProfileOut
