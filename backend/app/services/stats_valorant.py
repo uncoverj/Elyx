@@ -57,6 +57,15 @@ async def _detect_region(client: httpx.AsyncClient, name: str, tag: str, headers
         elif resp.status_code == 401:
             logger.error("Henrik API requires authentication. Set HENRIK_API_KEY in .env. Get one at https://docs.henrikdev.xyz/")
             return None
+        elif resp.status_code == 404:
+            # Error code 24 = account exists but no match history yet
+            body = resp.json()
+            errs = body.get("errors", [])
+            if errs and errs[0].get("code") == 24:
+                logger.info("Valorant account %s#%s exists but has no match history yet.", name, tag)
+                # Can't detect region without match data, fall back to trying all regions
+            else:
+                logger.info("Valorant account %s#%s not found in Henrik API.", name, tag)
     except Exception as exc:
         logger.debug("Region detection failed: %s", exc)
     return None
@@ -160,7 +169,11 @@ async def fetch_valorant_stats(riot_id: str) -> ValorantStats | None:
             kd, winrate = await _fetch_match_stats(client, match_region, name, tag, headers)
 
             if not rank_name and kd is None and winrate is None:
-                logger.warning("No Valorant data found for %s#%s in any region", name, tag)
+                logger.warning(
+                    "No Valorant data found for %s#%s in any region. "
+                    "Account may be new or have no competitive matches yet.",
+                    name, tag,
+                )
                 return None
 
             return ValorantStats(

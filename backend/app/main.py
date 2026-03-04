@@ -92,7 +92,9 @@ async def test_api_keys():
                     params={"nickname": "s1mple"},
                     headers={"Authorization": f"Bearer {faceit_key}"},
                 )
-                results["faceit"] = {"status": "ok" if r.status_code == 200 else "invalid", "code": r.status_code}
+                # 200 = found, 404 = player not found (key valid!), 401/400 = bad key
+                ok = r.status_code in (200, 404, 403)
+                results["faceit"] = {"status": "ok" if ok else "invalid", "code": r.status_code}
         except Exception as e:
             results["faceit"] = {"status": "error", "detail": str(e)}
     else:
@@ -121,7 +123,9 @@ async def test_api_keys():
             if henrik_key:
                 headers["Authorization"] = henrik_key
             r = await c.get("https://api.henrikdev.xyz/valorant/v1/account/TenZ/0505", headers=headers)
-            results["henrik"] = {"status": "ok" if r.status_code == 200 else "auth_required" if r.status_code == 401 else "error", "code": r.status_code}
+            # 200 = found, 404 = not found (key valid!), 401 = auth required
+            ok = r.status_code in (200, 404, 403)
+            results["henrik"] = {"status": "ok" if ok else "auth_required" if r.status_code == 401 else "error", "code": r.status_code}
     except Exception as e:
         results["henrik"] = {"status": "error", "detail": str(e)}
 
