@@ -9,3 +9,5 @@ pydantic-settings==2.5.2
 redis==5.1.1
 celery==5.4.0
 python-jose==3.3.0
+httpx==0.28.1
+python-dotenv==1.0.1
