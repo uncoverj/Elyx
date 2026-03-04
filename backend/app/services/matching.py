@@ -1,63 +1,75 @@
-from datetime import datetime, timedelta
+"""Matching service — finds the best next candidate for a user.
 
-from sqlalchemy import and_, case, func, or_, select
+Scoring weights (dating-oriented):
+  0.40 * rank_similarity (unified_score based)
+  0.20 * weighted_trust
+  0.15 * mood_boost (same mood in last 24h)
+  0.10 * tag_overlap
+  0.10 * activity_recency
+  0.05 * premium_boost
+"""
+
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Like, Match, Profile, Skip, Stats, TrustVote, User
+from app.models import Like, Match, Profile, Skip, Stats, User
+from app.services.trust import compute_weighted_trust
 
-RANK_ORDER = {
-    "iron": 1,
-    "bronze": 2,
-    "silver": 3,
-    "gold": 4,
-    "platinum": 5,
-    "diamond": 6,
-    "ascendant": 7,
-    "immortal": 8,
-    "radiant": 9,
-}
+# Max unified_score gap for rank_similarity to be non-zero
+MAX_SCORE_GAP = 4000
 
 
-def normalize_rank(rank_name: str | None) -> int | None:
-    if not rank_name:
-        return None
-    return RANK_ORDER.get(rank_name.lower())
-
-
-def rank_similarity(a: str | None, b: str | None) -> float:
-    left = normalize_rank(a)
-    right = normalize_rank(b)
-    if left is None or right is None:
-        return 0.25
-    diff = abs(left - right)
-    if diff >= 6:
+def rank_similarity_unified(my_score: int, their_score: int) -> float:
+    """Compare two unified scores (0-10000). Returns 0.0-1.0."""
+    if my_score == 0 or their_score == 0:
+        return 0.25  # unknown rank — neutral
+    gap = abs(my_score - their_score)
+    if gap >= MAX_SCORE_GAP:
         return 0.0
-    return max(0.0, 1 - diff / 6)
+    return max(0.0, 1.0 - gap / MAX_SCORE_GAP)
 
 
 def tag_overlap(tags_a: list[str], tags_b: list[str]) -> float:
     if not tags_a or not tags_b:
         return 0.0
     s_a, s_b = set(tags_a), set(tags_b)
-    return len(s_a.intersection(s_b)) / max(len(s_a), len(s_b))
+    return len(s_a & s_b) / max(len(s_a), len(s_b))
 
 
-async def trust_map(db: AsyncSession) -> dict[int, tuple[int, int, float]]:
-    result = await db.execute(
-        select(
-            TrustVote.to_user_id,
-            func.sum(case((TrustVote.value == 1, 1), else_=0)).label("up"),
-            func.sum(case((TrustVote.value == -1, 1), else_=0)).label("down"),
-        ).group_by(TrustVote.to_user_id)
-    )
-    mapping: dict[int, tuple[int, int, float]] = {}
-    for to_user_id, up, down in result.all():
-        up = int(up or 0)
-        down = int(down or 0)
-        total = up + down
-        score = up / total if total else 0.5
-        mapping[int(to_user_id)] = (up, down, score)
-    return mapping
+def activity_score(last_active_at: datetime | None) -> float:
+    """Score based on how recently the user was active."""
+    if not last_active_at:
+        return 0.1
+    now = datetime.now(timezone.utc)
+    la = last_active_at if last_active_at.tzinfo else last_active_at.replace(tzinfo=timezone.utc)
+    hours_ago = (now - la).total_seconds() / 3600
+    if hours_ago < 1:
+        return 1.0
+    elif hours_ago < 6:
+        return 0.9
+    elif hours_ago < 24:
+        return 0.7
+    elif hours_ago < 72:
+        return 0.4
+    return 0.15
+
+
+def mood_boost_score(my_mood: str | None, their_mood: str | None, their_mood_at: datetime | None) -> float:
+    """Boost if both users have the same mood set within last 24h."""
+    if not my_mood or not their_mood:
+        return 0.0
+    if my_mood != their_mood:
+        return 0.1  # slight boost for having any mood set
+    # Same mood — check recency
+    if their_mood_at:
+        now = datetime.now(timezone.utc)
+        mood_at = their_mood_at if their_mood_at.tzinfo else their_mood_at.replace(tzinfo=timezone.utc)
+        hours_ago = (now - mood_at).total_seconds() / 3600
+        if hours_ago > 24:
+            return 0.2  # stale mood, small boost
+    return 1.0  # same mood, recent
 
 
 async def next_candidate(db: AsyncSession, user_id: int) -> Profile | None:
@@ -66,6 +78,7 @@ async def next_candidate(db: AsyncSession, user_id: int) -> Profile | None:
         return None
 
     me_stats = (await db.execute(select(Stats).where(Stats.user_id == user_id))).scalar_one_or_none()
+    my_unified = me_stats.unified_score if me_stats else 0
 
     excluded_subquery = (
         select(Like.to_user_id.label("uid")).where(Like.from_user_id == user_id)
@@ -75,7 +88,7 @@ async def next_candidate(db: AsyncSession, user_id: int) -> Profile | None:
     ).subquery()
 
     base_query = (
-        select(Profile, User.last_active_at)
+        select(Profile, User.last_active_at, User.is_premium)
         .join(User, User.id == Profile.user_id)
         .where(
             and_(
@@ -85,24 +98,35 @@ async def next_candidate(db: AsyncSession, user_id: int) -> Profile | None:
                 User.is_banned.is_(False),
             )
         )
-        .limit(100)
+        .limit(150)
     )
     candidates = (await db.execute(base_query)).all()
     if not candidates:
         return None
 
-    trust_scores = await trust_map(db)
     scored: list[tuple[float, Profile]] = []
 
-    now = datetime.utcnow()
-    for profile, last_active_at in candidates:
+    for profile, last_active_at, is_premium in candidates:
         target_stats = (await db.execute(select(Stats).where(Stats.user_id == profile.user_id))).scalar_one_or_none()
-        rank_sim = rank_similarity(me_stats.rank_name if me_stats else None, target_stats.rank_name if target_stats else None)
-        _, _, trust = trust_scores.get(profile.user_id, (0, 0, 0.5))
+        their_unified = target_stats.unified_score if target_stats else 0
+
+        rank_sim = rank_similarity_unified(my_unified, their_unified)
+        _, _, trust = await compute_weighted_trust(db, profile.user_id)
         overlap = tag_overlap(me_profile.tags or [], profile.tags or [])
-        recency = 1.0 if last_active_at and last_active_at > now - timedelta(days=2) else 0.3
-        score = 0.45 * rank_sim + 0.35 * trust + 0.15 * overlap + 0.05 * recency
+        recency = activity_score(last_active_at)
+        premium_b = 1.0 if is_premium else 0.0
+        mood_b = mood_boost_score(me_profile.mood_status, profile.mood_status, profile.mood_updated_at)
+
+        score = (
+            0.40 * rank_sim
+            + 0.20 * trust
+            + 0.15 * mood_b
+            + 0.10 * overlap
+            + 0.10 * recency
+            + 0.05 * premium_b
+        )
         scored.append((score, profile))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored[0][1]
+

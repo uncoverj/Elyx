@@ -1,51 +1,28 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  postgres:
-    image: postgres:16
+  db:
+    image: postgres:15-alpine
+    container_name: uncoverj_db
+    restart: always
     environment:
-      POSTGRES_DB: elyx
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: uncoverj_user
+      POSTGRES_PASSWORD: uncoverj_password
+      POSTGRES_DB: uncoverj_db
     ports:
       - "5432:5432"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
 
   redis:
-    image: redis:7
+    image: redis:7-alpine
+    container_name: uncoverj_redis
+    restart: always
     ports:
       - "6379:6379"
-
-  backend:
-    build:
-      context: ./backend
-    env_file:
-      - ./.env
-    depends_on:
-      - postgres
-      - redis
-    ports:
-      - "8000:8000"
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
-
-  bot:
-    build:
-      context: ./bot
-    env_file:
-      - ./.env
-    depends_on:
-      - backend
-
-  webapp:
-    build:
-      context: ./webapp
-    env_file:
-      - ./.env
-    depends_on:
-      - backend
-    ports:
-      - "3000:3000"
+    volumes:
+      - redisdata:/data
 
 volumes:
-  pg_data:
+  pgdata:
+  redisdata:

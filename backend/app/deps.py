@@ -15,6 +15,7 @@ async def get_current_user(
     tg_init_data: str | None = Header(default=None, alias="tg-init-data"),
     x_service_token: str | None = Header(default=None, alias="x-service-token"),
     x_telegram_id: int | None = Header(default=None, alias="x-telegram-id"),
+    x_telegram_username: str | None = Header(default=None, alias="x-telegram-username"),
 ) -> User:
     settings = get_settings()
     tg_id: int | None = None
@@ -30,11 +31,13 @@ async def get_current_user(
     result = await db.execute(select(User).where(User.tg_id == tg_id))
     user = result.scalar_one_or_none()
     if not user:
-        user = User(tg_id=tg_id)
+        user = User(tg_id=tg_id, username=x_telegram_username)
         db.add(user)
         await db.commit()
         await db.refresh(user)
 
+    if x_telegram_username and user.username != x_telegram_username:
+        user.username = x_telegram_username
     user.last_active_at = datetime.utcnow()
     await db.commit()
     return user

@@ -15,39 +15,84 @@ Production-oriented MVP for gamer matchmaking:
 ## Implemented core features
 
 ### Bot
-- `/start` with registration bootstrap
-- Registration FSM: nickname, gender, age, game, roles, tags, bio, media, confirm
-- Main menu: Search / My Profile / Matches / Settings
-- Search actions: Like / Skip / Send letter / Stop
-- Mutual likes create match
+- `/start` with registration bootstrap and welcome message
+- Registration FSM: nickname, gender, age, game, roles, tags, bio, media, Riot/Steam account link, confirm
+- Main menu: Поиск / Мой профиль / Мэтчи / Лидерборд / Настройки
+- Search actions: Лайк / Скип / Отправить письмо / Остановить поиск
+- **Like notifications**: recipient gets "У вас новый лайк!" with "Посмотреть" button → shows sender's card → Лайк/Скип reaction
+- **Letter notifications**: recipient gets the letter text with Лайк/Скип reaction buttons
+- Mutual likes create match with notification to both users
+- Matches pagination with inline ⬅️/➡️ navigation and @username button
+- **Leaderboard**: per-game top players with pagination (⬅️/➡️), "Моя позиция" button, medals (🥇🥈🥉)
+- Profile card format: trust score, nickname/age/gender, game, roles, stats (K/D, Rank, Win%, Unified Score), bio
+- Premium badge (⭐) on premium profiles
 - Profile editing: refill, change media, change bio
-- Settings: Riot ID, Steam, refresh stats (stub)
+- Settings: Riot ID, Steam, refresh stats (with cooldown), Premium info, Support
 
 ### Backend API
 - `GET /health`
-- `GET /games`
-- `GET/PUT /profiles/me`
+- `GET /games` — Valorant, CS2, Dota 2, LoL, Apex Legends, Overwatch 2, Fortnite, Other
+- `GET/PUT /profiles/me` — includes `is_premium`, stats with `unified_score`
 - `GET /profiles/{id}`
 - `GET /search/next`
 - `POST /actions/like|skip|letter`
 - `GET /matches`, `GET /matches/{id}`
-- `POST /trust/upvote`, `POST /trust/downvote` (only after match)
+- `POST /trust/upvote`, `POST /trust/downvote` — match-gated, cooldown, suspicion detection
 - `POST /account/link/riot`, `POST /account/link/steam`
-- `POST /account/refresh-stats` (stub)
+- `POST /account/refresh-stats` — **real API integration** with cooldown (free: 12h, premium: 15min):
+  - **Valorant**: Henrik API (rank, RR, K/D, win rate)
+  - **Dota 2**: OpenDota API (medal, MMR, K/D, win rate)
+  - **CS2**: Steam Web API (K/D, win rate, hours played)
+- `GET /leaderboard/{game_id}` — paginated leaderboard by unified_score
+- `GET /leaderboard/{game_id}/me` — user's position + total
+- `POST /leaderboard/rebuild` — admin trigger to rebuild all leaderboards
+- `GET /premium/status` — current plan, days left, feature limits
+- `POST /premium/activate` — activate 30-day premium
 - Telegram auth: `tg-init-data` HMAC validation for WebApp
-- Bot->backend auth: `x-service-token` + `x-telegram-id`
-- Rate limits via Redis:
-  - letters: 5/day for free users
-  - likes: 100/day for free users
+- Bot→backend auth: `x-service-token` + `x-telegram-id` + `x-telegram-username`
+- **Background refresh loop**: every 30 min, auto-updates eligible users' stats + rebuilds leaderboards
+- Rate limits via Redis (graceful fallback when Redis unavailable in dev):
+  - letters: 5/day for free users (unlimited for premium)
+  - likes: 100/day for free users (unlimited for premium)
+
+### Unified Rank Scoring (0–10,000)
+Each game’s ranks are mapped to a universal 0–10,000 scale for fair cross-comparison:
+- **Valorant**: Iron 1 (500) → Radiant (8840) + RR bonus
+- **CS2**: Silver I (500) → Global Elite (9000)
+- **Dota 2**: Herald (700) → Immortal (7800), or raw MMR ×0.75+500
+- **LoL**: Iron IV (500) → Challenger (8600) + LP bonus
+- **Apex**: Rookie (500) → Apex Predator (8800)
+- **Overwatch 2**: Bronze (500) → Champion (8500)
+
+### Leaderboard
+- Per-game leaderboard sorted by `unified_score`
+- Cached in `leaderboard_entries` table for fast reads
+- Rebuilt automatically after stats refresh
+- Paginated (offset/limit), with user position lookup
 
 ### Matching
-- Filters by same game
+- Hard filter by same game
 - Excludes already liked/skipped/matched users
-- Score:
-  - `0.45 * rank_similarity`
-  - `0.35 * trust_score`
-  - `0.15 * tag_overlap`
-  - `0.05 * recency`
+- Score (unified_score-based):
+  - `0.50 * rank_similarity` (unified_score gap, max 4000)
+  - `0.25 * weighted_trust` (account-age-weighted votes)
+  - `0.10 * tag_overlap`
+  - `0.10 * activity_recency` (1h→1.0, 6h→0.9, 24h→0.7, 72h→0.4)
+  - `0.05 * premium_boost`
+
+### Trust System (enhanced)
+- Vote only after match (enforced at API)
+- 24h cooldown between vote changes
+- **Weighted votes** by account age: <7d → 0.2, 7-30d → 0.6, 30d+ → 1.0
+- Premium does NOT give stronger vote weight (anti-pay2win)
+- Suspicion detection: 5+ downvotes in 24h → flagged
+
+### Premium System
+- 30-day subscription periods (stackable)
+- Unlimited likes and letters
+- Priority in search results
+- ⭐ badge on profile card
+- See who liked you (planned)
 
 ### Web App
 Pages:
@@ -105,8 +150,11 @@ Copy-Item .env.example .env
 2. Edit `.env` and set at minimum:
    - `BOT_TOKEN`
    - (optional) `DATABASE_URL` for real Postgres
+   - (optional) `STEAM_API_KEY` for CS2 stats — get one at https://steamcommunity.com/dev/apikey
+   - (optional) `HENRIK_API_KEY` for Valorant stats — free tier works without key
 
 `APP_ENV` defaults to `dev` and backend auto-falls back to SQLite (`elyx.db`) when Postgres is missing/unreachable.
+Redis is also optional in dev — rate limiting is silently skipped when Redis is unavailable.
 
 ### Run services
 
@@ -158,7 +206,20 @@ Recommended split:
 
 Bot and backend must stay online continuously for reliable notifications and matching.
 
-## Notes / stubs
+## Architecture (3-layer)
 
-- Riot and Steam integrations are linked as account references; official stats sync is left as pluggable stub.
+1. **Bot API** (aiogram v3) — registration, menus, search UX, notifications, leaderboard display
+2. **Backend** (FastAPI) — DB, matching, trust, rate limits, leaderboard cache, premium
+3. **Stats/Analytics** (services layer) — Riot/Steam/OpenDota API integrations, rank normalization, background refresh
+
+The bot never calls game APIs directly — all stats go through the backend’s analytics service.
+
+## Notes / roadmap
+
+- **Valorant stats** use Henrik's unofficial API (free tier, no key needed, 30 req/min).
+- **Dota 2 stats** use OpenDota API (free, no key needed, 60 req/min).
+- **CS2 stats** use Steam Web API (requires `STEAM_API_KEY` for full data).
+- **League of Legends** stats integration is planned but not yet implemented.
+- **Background refresh**: runs every 30 min, respects free (18h) and premium (2h) intervals, 2s delay between users for API rate limits.
+- Payment integration for Premium (Telegram Stars / Stripe) is next-step work.
 - Anti-fraud extensions (duplicate media detection, advanced anomaly checks) are scaffolded as next-step work.

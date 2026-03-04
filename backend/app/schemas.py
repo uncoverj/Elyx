@@ -13,6 +13,9 @@ class ProfileIn(BaseModel):
     media_file_id: str
     roles: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    green_flags: list[str] = Field(default_factory=list, max_length=3)
+    dealbreaker: str | None = None
+    mood_status: str | None = None
 
 
 class StatsIn(BaseModel):
@@ -20,7 +23,9 @@ class StatsIn(BaseModel):
     winrate: float | None = None
     rank_name: str | None = None
     rank_points: int | None = None
+    unified_score: int = 0
     source: str = "manual"
+    source_status: str = "ok"
     verified: bool = False
 
 
@@ -38,9 +43,13 @@ class ProfileOut(BaseModel):
     media_file_id: str
     roles: list[str]
     tags: list[str]
+    green_flags: list[str] = []
+    dealbreaker: str | None = None
+    mood_status: str | None = None
     trust_up: int
     trust_down: int
     trust_score: float
+    is_premium: bool = False
     stats: StatsIn | None = None
 
 

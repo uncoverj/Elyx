@@ -1,26 +1,35 @@
 import "./globals.css";
-import Link from "next/link";
+import Script from "next/script";
 import type { ReactNode } from "react";
 
+import BottomNav from "@/components/bottom-nav";
+import { Providers } from "@/components/providers";
+
 export const metadata = {
-  title: "Elyx Web App",
-  description: "Telegram Mini App for gamer matching",
+  title: "Elyx — Gaming Stats Tracker",
+  description: "Track your gaming stats, find teammates, compete on leaderboards",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#0a0d1a" />
+        <Script
+          src="https://telegram.org/js/telegram-web-app.js"
+          strategy="beforeInteractive"
+        />
+      </head>
       <body>
-        <div className="shell">
-          <nav className="nav">
-            <Link href="/">Home</Link>
-            <Link href="/profile/edit">Profile</Link>
-            <Link href="/matches">Matches</Link>
-            <Link href="/account">Account</Link>
-            <Link href="/premium">Premium</Link>
-          </nav>
-          {children}
-        </div>
+        <Providers>
+          <div className="app-shell">
+            <div className="app-content">
+              {children}
+            </div>
+            <BottomNav />
+          </div>
+        </Providers>
       </body>
     </html>
   );

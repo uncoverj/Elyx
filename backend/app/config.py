@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     database_url: str = ""
     redis_url: str = "redis://redis:6379/0"
     cors_origin: str = "*"
+    steam_api_key: str = ""
+    henrik_api_key: str = ""
+    riot_api_key: str = ""
+    faceit_api_key: str = ""
 
     model_config = SettingsConfigDict(env_file=ROOT_ENV_FILE, extra="ignore")
 

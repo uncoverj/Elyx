@@ -35,7 +35,9 @@ async def build_profile_out(db: AsyncSession, user_id: int) -> ProfileOut | None
             winrate=stats.winrate,
             rank_name=stats.rank_name,
             rank_points=stats.rank_points,
+            unified_score=stats.unified_score,
             source=stats.source,
+            source_status=stats.source_status,
             verified=stats.verified,
         )
 
@@ -53,8 +55,12 @@ async def build_profile_out(db: AsyncSession, user_id: int) -> ProfileOut | None
         media_file_id=profile.media_file_id,
         roles=profile.roles or [],
         tags=profile.tags or [],
+        green_flags=profile.green_flags or [],
+        dealbreaker=profile.dealbreaker,
+        mood_status=profile.mood_status,
         trust_up=up,
         trust_down=down,
         trust_score=trust_score,
+        is_premium=user.is_premium,
         stats=stats_out,
     )

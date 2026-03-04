@@ -4,7 +4,7 @@ export async function backendFetch(path: string, options: RequestInit = {}) {
       ? (window as any)?.Telegram?.WebApp?.initData || ""
       : "";
 
-  const base = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+  const base = process.env.NEXT_PUBLIC_BACKEND_URL || "";
   const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
