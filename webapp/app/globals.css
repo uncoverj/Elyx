@@ -4,6 +4,9 @@
    DESIGN TOKENS
 ═══════════════════════════════════════════════════════════ */
 :root {
+  --shell-max-width: 430px;
+  --tabbar-height: 92px;
+
   /* Backgrounds */
   --bg-base: #080C10;
   --bg-surface: #0D1117;
@@ -77,8 +80,10 @@ body {
 .app-shell {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
-  max-width: 430px;
+  height: 100svh;
+  min-height: 100svh;
+  width: min(100vw, var(--shell-max-width));
+  max-width: var(--shell-max-width);
   margin: 0 auto;
   background: var(--bg-surface);
   position: relative;
@@ -90,7 +95,8 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;
-  padding-bottom: 90px;
+  padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 6px);
+  padding-top: env(safe-area-inset-top);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
@@ -107,13 +113,14 @@ body {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 100%;
-  max-width: 430px;
+  width: min(100vw, var(--shell-max-width));
+  max-width: var(--shell-max-width);
   z-index: 100;
   display: flex;
   align-items: flex-end;
   justify-content: space-around;
-  padding: 8px 8px 20px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  min-height: var(--tabbar-height);
   background: rgba(8, 12, 16, 0.92);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1018,4 +1025,74 @@ body {
 
 .space-y-3>*+* {
   margin-top: 12px;
+}
+
+/* Responsive adaptation */
+@media (max-width: 380px) {
+  :root {
+    --tabbar-height: 84px;
+  }
+
+  .hero-banner {
+    height: 170px;
+  }
+
+  .card-grid-2 {
+    gap: 10px;
+    margin: 0 12px 10px;
+  }
+
+  .stat-card {
+    padding: 12px;
+  }
+
+  .stat-card-value {
+    font-size: 22px;
+  }
+
+  .tab-item span,
+  .tab-center-label {
+    font-size: 9px;
+  }
+}
+
+@media (max-height: 720px) {
+  :root {
+    --tabbar-height: 82px;
+  }
+
+  .hero-banner {
+    height: 150px;
+  }
+
+  .tab-center {
+    bottom: 6px;
+  }
+
+  .tab-center-btn {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+@media (min-width: 768px) {
+  body {
+    padding: 14px 0;
+    background:
+      radial-gradient(90% 70% at 50% 0%, rgba(255, 70, 85, 0.12) 0%, transparent 65%),
+      var(--bg-base);
+  }
+
+  .app-shell {
+    border-radius: 24px;
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+    height: calc(100svh - 28px);
+    min-height: calc(100svh - 28px);
+  }
+
+  .tab-bar {
+    border-bottom-left-radius: 24px;
+    border-bottom-right-radius: 24px;
+  }
 }
