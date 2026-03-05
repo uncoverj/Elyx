@@ -1,225 +1,152 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { backendFetch } from "@/lib/api";
-import { SkeletonCard } from "@/components/skeleton";
+import { api } from "@/lib/api";
 
-const MOCK_MATCHES = [
-    {
-        date: '24 февр.',
-        summary: { kd: 0.70, dmgPerRound: 123, acs: 183 },
-        matches: [
-            {
-                result: 'loss',
-                score: '12:14',
-                agent: 'Jett',
-                kda: '14/25/13',
-                kd: 0.6,
-                utilDmg: 11,
-                dmgPerRound: 121,
-                map: 'Corrode',
-                mode: 'Competitive'
-            },
-            {
-                result: 'win',
-                score: '13:8',
-                agent: 'Omen',
-                kda: '16/16/6',
-                kd: 1.0,
-                utilDmg: 35,
-                dmgPerRound: 142,
-                map: 'Bind',
-                mode: 'Competitive'
-            },
-        ]
-    },
-    {
-        date: '23 февр.',
-        summary: { kd: 1.15, dmgPerRound: 145, acs: 201 },
-        matches: [
-            {
-                result: 'win',
-                score: '13:10',
-                agent: 'Reyna',
-                kda: '22/18/8',
-                kd: 1.22,
-                utilDmg: 28,
-                dmgPerRound: 156,
-                map: 'Pearl',
-                mode: 'Competitive'
-            },
-            {
-                result: 'win',
-                score: '13:5',
-                agent: 'Jett',
-                kda: '18/12/5',
-                kd: 1.5,
-                utilDmg: 15,
-                dmgPerRound: 167,
-                map: 'Abyss',
-                mode: 'Competitive'
-            },
-        ]
-    }
-];
-
-function getAgentIcon(agent: string): string {
-    const icons: Record<string, string> = {
-        'Jett': '⚡', 'Omen': '🌀', 'Reyna': '😈', 'Phoenix': '🔥',
-        'Sage': '🌿', 'Sova': '🏹', 'Breach': '💥', 'Cypher': '🕵️',
-        'Killjoy': '🔧', 'Viper': '🐍', 'Astra': '⭐', 'Kay/O': '🤖',
-        'Chamber': '🎩', 'Neon': '⚡', 'Fade': '👻', 'Harbor': '🌊',
-        'Deadlock': '🛡️', 'Iso': '⚡'
-    };
-    return icons[agent] || '🎮';
+interface MatchEntry {
+    id: number;
+    result: "win" | "loss";
+    score: string;
+    kda: string;
+    kd: string;
+    dmg: string;
+    map: string;
+    mode: string;
+    agent: string;
+    agentEmoji: string;
+    agentColor: string;
+    date: string;
 }
 
-export default function HistoryPage() {
-    const [matches, setMatches] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+// Mock history data — replace with real API call when available
+const MOCK_HISTORY: MatchEntry[] = [
+    { id: 1, result: "win", score: "13-7", kda: "22/14/5", kd: "1.57", dmg: "147", map: "Ascent", mode: "Competitive", agent: "Jett", agentEmoji: "🗡️", agentColor: "#4A9EFF", date: "Сегодня" },
+    { id: 2, result: "loss", score: "9-13", kda: "18/19/4", kd: "0.95", dmg: "128", map: "Haven", mode: "Competitive", agent: "Neon", agentEmoji: "⚡", agentColor: "#3FB950", date: "Сегодня" },
+    { id: 3, result: "win", score: "13-5", kda: "25/10/8", kd: "2.50", dmg: "178", map: "Bind", mode: "Competitive", agent: "Jett", agentEmoji: "🗡️", agentColor: "#4A9EFF", date: "Сегодня" },
+    { id: 4, result: "loss", score: "11-13", kda: "14/16/6", kd: "0.88", dmg: "112", map: "Fracture", mode: "Competitive", agent: "Brimstone", agentEmoji: "🔥", agentColor: "#E67E22", date: "Вчера" },
+    { id: 5, result: "win", score: "13-10", kda: "20/15/7", kd: "1.33", dmg: "143", map: "Pearl", mode: "Spike Rush", agent: "Jett", agentEmoji: "🗡️", agentColor: "#4A9EFF", date: "Вчера" },
+    { id: 6, result: "win", score: "13-8", kda: "19/12/3", kd: "1.58", dmg: "158", map: "Lotus", mode: "Competitive", agent: "Neon", agentEmoji: "⚡", agentColor: "#3FB950", date: "Вчера" },
+    { id: 7, result: "loss", score: "6-13", kda: "11/17/4", kd: "0.65", dmg: "98", map: "Icebox", mode: "Competitive", agent: "Killjoy", agentEmoji: "🤖", agentColor: "#F0A500", date: "2 дня назад" },
+    { id: 8, result: "win", score: "13-11", kda: "22/18/6", kd: "1.22", dmg: "136", map: "Sunset", mode: "Competitive", agent: "Jett", agentEmoji: "🗡️", agentColor: "#4A9EFF", date: "2 дня назад" },
+];
+
+function groupByDate(matches: MatchEntry[]) {
+    const groups: Record<string, MatchEntry[]> = {};
+    for (const m of matches) {
+        if (!groups[m.date]) groups[m.date] = [];
+        groups[m.date].push(m);
+    }
+    return groups;
+}
+
+export default function MatchesPage() {
+    const [matches, setMatches] = useState<MatchEntry[]>(MOCK_HISTORY);
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        const load = async () => {
-            try {
-                const data = await backendFetch("/matches");
-                setMatches(data || []);
-            } catch {
-                setMatches([]);
+        // Try to load real matches, fall back to mock silently
+        api.get<any[]>("/matches").then(data => {
+            if (Array.isArray(data) && data.length > 0) {
+                // Transform real data if returned
+                setMatches(data as any);
             }
-            setLoading(false);
-        };
-        load();
+        }).catch(() => { });
     }, []);
 
     if (loading) {
         return (
-            <main className="fade-in" style={{ padding: 16 }}>
-                {[1, 2, 3, 4].map(i => <div key={i} style={{ marginBottom: 10 }}><SkeletonCard lines={2} /></div>)}
+            <main>
+                <div className="loading-screen">
+                    <div className="spinner" />
+                </div>
             </main>
         );
     }
 
-    // Use mock data if no real matches
-    const displayMatches = matches.length > 0 ? matches : MOCK_MATCHES;
+    if (!matches.length) {
+        return (
+            <main className="fade-in">
+                <div className="empty-state">
+                    <div className="empty-icon-wrap">💞</div>
+                    <p className="empty-title">Пока нет матчей</p>
+                    <p className="empty-desc">Лайкайте профили в боте, чтобы находить тиммейтов</p>
+                    <button className="btn-gradient">Открыть бота</button>
+                </div>
+            </main>
+        );
+    }
+
+    const groups = groupByDate(matches);
 
     return (
         <main className="fade-in">
-            <div className="hero-banner">
-                <div className="hero-logo">ELYX</div>
+            {/* Header */}
+            <div className="hero-banner" style={{ height: 120, background: "linear-gradient(180deg, rgba(255,70,85,0.12) 0%, transparent 100%)" }}>
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 40%, var(--bg-surface) 100%)" }} />
+                <span className="hero-elyx-logo">ELYX</span>
+                <div className="hero-content">
+                    <h1 style={{ fontSize: 22, fontWeight: 900, color: "var(--text-primary)" }}>🕐 История матчей</h1>
+                </div>
             </div>
 
-            <div className="section">
-                <h2 className="section-title slide-in-left stagger-1">Матчи</h2>
+            {/* Filter pills */}
+            <div className="filter-pills" style={{ paddingTop: 8 }}>
+                {["Все", "Побед", "Поражений", "Competitive", "Spike Rush"].map((f, i) => (
+                    <button key={f} className={`filter-pill${i === 0 ? " active" : ""}`}>{f}</button>
+                ))}
+            </div>
 
-                {displayMatches.length === 0 ? (
-                    <div className="card fade-in stagger-2" style={{ textAlign: "center", padding: 24 }}>
-                        <div style={{ fontSize: 40, marginBottom: 8 }}>🤝</div>
-                        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>
-                            Пока нет матчей. Лайкайте профили, чтобы находить тиммейтов!
-                        </div>
-                    </div>
-                ) : (
-                    displayMatches.map((group: any, groupIndex: number) => (
-                        <div key={group.date} style={{ marginBottom: 20 }}>
-                            {/* Date header with summary */}
-                            <div style={{ 
-                                display: 'flex', 
-                                justifyContent: 'space-between', 
-                                alignItems: 'center',
-                                marginBottom: 8,
-                                padding: '0 4px'
-                            }}>
-                                <div style={{ 
-                                    fontSize: 15, 
-                                    fontWeight: 600, 
-                                    color: 'var(--text-primary)' 
-                                }}>
-                                    {group.date}
-                                </div>
-                                <div style={{ 
-                                    fontSize: 11, 
-                                    color: 'var(--text-secondary)',
-                                    display: 'flex',
-                                    gap: 12
-                                }}>
-                                    <span>{group.matches.length} матча</span>
-                                    <span>К/Д {group.summary.kd}</span>
-                                    <span>У/Р {group.summary.dmgPerRound}</span>
-                                    <span>ACS {group.summary.acs}</span>
-                                </div>
-                            </div>
-
-                            {/* Matches for this date */}
-                            {group.matches.map((match: any, i: number) => (
-                                <div key={i} className="card fade-in" 
-                                    style={{ 
-                                        animationDelay: `${0.1 + i * 0.05}s`,
-                                        padding: 12,
-                                        marginLeft: 4,
-                                        borderLeft: `4px solid ${match.result === 'win' ? 'var(--accent-green)' : 'var(--accent-red)'}`
-                                    }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                            <div style={{
-                                                width: 32, height: 32, borderRadius: '50%',
-                                                background: 'var(--bg-card-hover)',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: 16
+            {/* Match groups */}
+            <div style={{ padding: "0 16px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+                {Object.entries(groups).map(([date, dayMatches]) => (
+                    <div key={date}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.6px" }}>
+                            {date}
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {dayMatches.map(m => (
+                                <div key={m.id} className={`match-card ${m.result}`}>
+                                    <div className="match-card-stripe" />
+                                    <div className="match-card-inner">
+                                        {/* Agent */}
+                                        <div className="match-agent-wrap">
+                                            <div className="match-agent-img" style={{
+                                                background: `${m.agentColor}20`,
+                                                border: `1px solid ${m.agentColor}40`,
+                                                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20
                                             }}>
-                                                {getAgentIcon(match.agent)}
+                                                {m.agentEmoji}
                                             </div>
-                                            <div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <span style={{ 
-                                                        fontSize: 14, 
-                                                        fontWeight: 600, 
-                                                        color: 'var(--text-primary)' 
-                                                    }}>
-                                                        {match.score}
-                                                    </span>
-                                                    <span style={{
-                                                        fontSize: 11,
-                                                        padding: '2px 6px',
-                                                        borderRadius: 4,
-                                                        background: match.result === 'win' ? 'var(--accent-green)' : 'var(--accent-red)',
-                                                        color: 'white',
-                                                        fontWeight: 600
-                                                    }}>
-                                                        {match.result === 'win' ? 'В' : 'П'}
-                                                    </span>
-                                                </div>
-                                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                                                    {match.map} • {match.mode}
-                                                </div>
+                                            <div className={`match-result-badge ${m.result}`}>
+                                                {m.result === "win" ? "В" : "П"}
                                             </div>
                                         </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                                                {match.agent}
-                                            </div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                                                {match.kda}
+
+                                        {/* Score */}
+                                        <div className="match-score">{m.score}</div>
+
+                                        {/* Stats */}
+                                        <div className="match-stats">
+                                            <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                                                KDA <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{m.kda}</span>
+                                            </p>
+                                            <div className="match-stats-row">
+                                                <span className="match-stat-label">КД <span className="match-stat-val">{m.kd}</span></span>
+                                                <span className="match-stat-label">У/Р <span className="match-stat-val">{m.dmg}</span></span>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div style={{ 
-                                        display: 'flex', 
-                                        gap: 16, 
-                                        marginTop: 8,
-                                        fontSize: 11,
-                                        color: 'var(--text-secondary)'
-                                    }}>
-                                        <span>КД {match.kd}</span>
-                                        <span>УПГ% {match.utilDmg}</span>
-                                        <span>У/Р {match.dmgPerRound}</span>
+
+                                        {/* Map */}
+                                        <div className="match-meta">
+                                            <p className="match-map">{m.map}</p>
+                                            <p className="match-mode">{m.mode}</p>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
                         </div>
-                    ))
-                )}
+                    </div>
+                ))}
             </div>
         </main>
     );

@@ -1,134 +1,158 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useProfile } from "@/lib/use-profile";
-import { SkeletonCard } from "@/components/skeleton";
+
+const RANK_DISTRIBUTION = [
+    { rank: "Iron", pct: 14, h: 14, color: "#6B7280" },
+    { rank: "Bronze", pct: 20, h: 20, color: "#A16207" },
+    { rank: "Silver", pct: 26, h: 26, color: "#9CA3AF" },
+    { rank: "Gold", pct: 18, h: 18, color: "#F0A500" },
+    { rank: "Plat", pct: 10, h: 10, color: "#4A9EFF" },
+    { rank: "Diamond", pct: 7, h: 7, color: "#818CF8" },
+    { rank: "Ascendant", pct: 3, h: 3, color: "#3FB950" },
+    { rank: "Immortal", pct: 1.5, h: 2, color: "#EF4444" },
+    { rank: "Radiant", pct: 0.5, h: 1, color: "#F9A825" },
+];
 
 const MOCK_ROLES = [
-    { name: 'Duelist', icon: '⚔️', matches: 58, winRate: 62.1, kd: 0.94, dmg: 147.3, color: '#FF6B35' },
-    { name: 'Controller', icon: '🛡️', matches: 41, winRate: 56.1, kd: 0.87, dmg: 127.0, color: '#4A9EFF' },
-    { name: 'Initiator', icon: '💥', matches: 4, winRate: 75.0, kd: 1.22, dmg: 137.7, color: '#4CAF50' },
-    { name: 'Sentinel', icon: '🔒', matches: 1, winRate: 100.0, kd: 0.94, dmg: 130.5, color: '#FFFFFF' },
+    { role: "Duelist", played: 45, pct: 63, wl: "32W 13L", kd: "1.24" },
+    { role: "Controller", played: 18, pct: 25, wl: "11W  7L", kd: "1.02" },
+    { role: "Sentinel", played: 8, pct: 12, wl: " 4W  4L", kd: "0.91" },
 ];
 
 const MOCK_AGENTS = [
-    { name: 'Jett', time: '27ч 54м', winRate: 62.0, kd: 0.94, dmg: 149.4 },
-    { name: 'Omen', time: '15ч 11м', winRate: 55.2, kd: 0.96, dmg: 135.0 },
+    { name: "Jett", role: "Duelist", color: "#4A9EFF", games: 28, kd: "1.38" },
+    { name: "Neon", role: "Duelist", color: "#3FB950", games: 17, kd: "1.21" },
+    { name: "Brimstone", role: "Controller", color: "#E67E22", games: 12, kd: "0.98" },
 ];
 
 const MOCK_MAPS = [
-    { name: 'Pearl', record: '15W-4L', winRate: 78.9, kd: 1.01 },
-    { name: 'Abyss', record: '10W-3L', winRate: 76.9, kd: 1.11 },
-    { name: 'Corrode', record: '8W-4L', winRate: 66.7, kd: 0.85 },
+    { name: "Ascent", wr: 71, games: 14, color: "#4A9EFF" },
+    { name: "Haven", wr: 60, games: 10, color: "#3FB950" },
+    { name: "Bind", wr: 43, games: 7, color: "#F0A500" },
 ];
 
 export default function RolesPage() {
-    const { profile, loading } = useProfile();
-
-    if (loading) {
-        return (
-            <main className="fade-in" style={{ padding: 16 }}>
-                <SkeletonCard lines={3} />
-                <div style={{ marginTop: 10 }}><SkeletonCard lines={3} /></div>
-                <div style={{ marginTop: 10 }}><SkeletonCard lines={2} /></div>
-            </main>
-        );
-    }
-
-    // Use mock data when no profile
-    const displayName = profile?.nickname || "Uncoverj";
-    const displayGame = profile?.game_name || "Valorant";
+    const { profile } = useProfile();
+    const [visibleBars, setVisibleBars] = useState(false);
+    useEffect(() => { const t = setTimeout(() => setVisibleBars(true), 200); return () => clearTimeout(t); }, []);
 
     return (
         <main className="fade-in">
+            {/* Hero */}
             <div className="hero-banner">
-                <div className="hero-logo">{displayGame.substring(0, 4).toUpperCase()}</div>
-            </div>
-
-            {/* Mini profile */}
-            <div className="profile-header fade-in stagger-1">
-                <div className="avatar-ring" style={{ width: 40, height: 40 }}>
-                    <div className="avatar-placeholder" style={{ fontSize: 14 }}>{displayName.charAt(0).toUpperCase()}</div>
-                </div>
-                <div className="profile-info">
-                    <div className="profile-name" style={{ fontSize: 16 }}>
-                        {displayName} <span className="tag">#{profile?.username || "user"}</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                        {displayGame} • 🎮 {profile?.trust_score?.toFixed(1) || "85.0"}%
-                    </div>
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(255,70,85,0.15) 0%, transparent 60%)" }} />
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 40%, var(--bg-surface) 100%)" }} />
+                <span className="hero-elyx-logo">ELYX</span>
+                <div className="hero-content">
+                    <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                        {profile?.game_name ?? "Valorant"}
+                    </p>
+                    <h1 style={{ fontSize: 22, fontWeight: 900, color: "var(--text-primary)" }}>
+                        ⚡ Power Stats
+                    </h1>
                 </div>
             </div>
 
-            {/* Roles */}
-            <div className="section">
-                <h2 className="section-title slide-in-left stagger-2">Роли</h2>
-                {MOCK_ROLES.map((role, i) => (
-                    <div key={role.name} className="card fade-in" style={{ animationDelay: `${0.1 + i * 0.05}s`, padding: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Rank Distribution Chart */}
+            <div className="section-hd">
+                <span className="section-title">Распределение рангов</span>
+            </div>
+            <div className="rank-chart">
+                {RANK_DISTRIBUTION.map(r => (
+                    <div key={r.rank} className="rank-chart-bar-wrap">
+                        <div
+                            className="rank-chart-bar"
+                            style={{
+                                height: visibleBars ? `${r.h * 4}px` : "2px",
+                                background: r.color,
+                                opacity: 0.7,
+                                transition: `height 0.7s cubic-bezier(0.22,1,0.36,1) ${RANK_DISTRIBUTION.indexOf(r) * 40}ms`
+                            }}
+                        />
+                        <span className="rank-chart-label">{r.rank[0]}</span>
+                    </div>
+                ))}
+            </div>
+
+            {/* Roles Breakdown */}
+            <div className="section-hd" style={{ marginTop: 20 }}>
+                <span className="section-title">Роли</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 16px 4px" }}>
+                {MOCK_ROLES.map(r => (
+                    <div key={r.role} className="card" style={{ padding: "12px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                            <div>
+                                <p style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{r.role}</p>
+                                <p style={{ fontSize: 11, color: "var(--text-secondary)" }}>{r.played} played · K/D {r.kd}</p>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                                <p style={{ fontSize: 14, fontWeight: 800, color: "var(--red)" }}>{r.pct}%</p>
+                                <p style={{ fontSize: 10, color: "var(--text-secondary)" }}>{r.wl}</p>
+                            </div>
+                        </div>
+                        <div style={{ height: 4, background: "var(--border-default)", borderRadius: 4, overflow: "hidden" }}>
                             <div style={{
-                                width: 40, height: 40, borderRadius: '50%',
-                                background: role.color, display: 'flex',
-                                alignItems: 'center', justifyContent: 'center',
-                                fontSize: 20
-                            }}>
-                                {role.icon}
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>{role.name}</div>
-                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{role.matches} матчей</div>
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
-                            <div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Победы%</div>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{role.winRate}%</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>К/Д</div>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{role.kd}</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Урон/Раунд</div>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{role.dmg}</div>
-                            </div>
+                                height: "100%",
+                                width: visibleBars ? `${r.pct}%` : "0%",
+                                background: "var(--gradient-accent)",
+                                transition: "width 0.9s cubic-bezier(0.22,1,0.36,1)",
+                                borderRadius: 4
+                            }} />
                         </div>
                     </div>
                 ))}
             </div>
 
-            {/* Agents */}
-            <div className="section">
-                <h2 className="section-title slide-in-left stagger-3">Агенты</h2>
-                {MOCK_AGENTS.map((agent, i) => (
-                    <div key={agent.name} className="card fade-in" style={{ animationDelay: `${0.1 + i * 0.05}s`, padding: 12 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{agent.name}</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{agent.time}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{agent.winRate}%</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>К/Д {agent.kd}</div>
-                            </div>
+            {/* Top Agents */}
+            <div className="section-hd" style={{ marginTop: 16 }}>
+                <span className="section-title">Топ агенты</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px 4px" }}>
+                {MOCK_AGENTS.map((a, i) => (
+                    <div key={a.name} className="card" style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{
+                            width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                            background: `${a.color}20`, border: `1px solid ${a.color}40`,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 20
+                        }}>
+                            {["🗡️", "⚡", "🔥"][i]}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{a.name}</p>
+                            <p style={{ fontSize: 11, color: "var(--text-secondary)" }}>{a.role} · {a.games} games</p>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                            <p style={{ fontSize: 15, fontWeight: 800, color: a.color }}>K/D {a.kd}</p>
                         </div>
                     </div>
                 ))}
             </div>
 
-            {/* Maps */}
-            <div className="section">
-                <h2 className="section-title slide-in-left stagger-4">Карты</h2>
-                {MOCK_MAPS.map((map, i) => (
-                    <div key={map.name} className="card fade-in" style={{ animationDelay: `${0.1 + i * 0.05}s`, padding: 12 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{map.name}</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{map.record}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{map.winRate}%</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>К/Д {map.kd}</div>
-                            </div>
+            {/* Best Maps */}
+            <div className="section-hd" style={{ marginTop: 16 }}>
+                <span className="section-title">Лучшие карты</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px 24px" }}>
+                {MOCK_MAPS.map(m => (
+                    <div key={m.name} className="card" style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{
+                            width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                            background: `${m.color}20`, border: `1px solid ${m.color}40`,
+                            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18
+                        }}>🗺️</div>
+                        <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{m.name}</p>
+                            <p style={{ fontSize: 11, color: "var(--text-secondary)" }}>{m.games} матчей</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 16, fontWeight: 900, color: m.wr >= 55 ? "var(--green)" : m.wr >= 45 ? "var(--gold)" : "var(--red)" }}>
+                                {m.wr}%
+                            </p>
+                            <p style={{ fontSize: 10, color: "var(--text-secondary)", textAlign: "right" }}>WR</p>
                         </div>
                     </div>
                 ))}

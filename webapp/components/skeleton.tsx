@@ -8,14 +8,11 @@ export function Skeleton({ width = "100%", height = 16, radius = 8, className = 
 }) {
     return (
         <div
-            className={`skeleton-pulse ${className}`}
+            className={`skeleton ${className}`}
             style={{
                 width: typeof width === "number" ? `${width}px` : width,
                 height: `${height}px`,
                 borderRadius: `${radius}px`,
-                background: "linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s ease-in-out infinite",
             }}
         />
     );

@@ -22,9 +22,18 @@ settings = get_settings()
 app = FastAPI(title="Elyx API", version="0.1.0")
 
 origins = [x.strip() for x in settings.cors_origin.split(",") if x.strip()]
+# Always allow localhost and all Vercel preview URLs
+ALWAYS_ALLOWED = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://*.vercel.app",
+]
+merged_origins = list(dict.fromkeys(ALWAYS_ALLOWED + origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
+    allow_origins=merged_origins if "*" not in merged_origins else ["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
