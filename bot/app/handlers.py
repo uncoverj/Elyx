@@ -537,7 +537,10 @@ async def reg_save(message: Message, state: FSMContext) -> None:
                 )
             else:
                 error = result.get("error", "")
-                if error == "api_fetch_failed":
+                if error == "no_match_history":
+                    msg = result.get("message", "Сыграй хотя бы одну игру.")
+                    await message.answer(f"⚠️ {msg}")
+                elif error == "api_fetch_failed":
                     await message.answer("⏳ Проверяем аккаунт… Обычно 10–60 сек. Я напишу, когда будет готово.")
                 else:
                     await message.answer("📊 Статистика подтянется автоматически.")

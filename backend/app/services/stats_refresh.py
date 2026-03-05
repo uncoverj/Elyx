@@ -126,6 +126,14 @@ async def refresh_user_stats(db: AsyncSession, user_id: int) -> dict:
         fetched = await fetch_fortnite_stats(account_ref)
 
     if not fetched:
+        # Special case for Valorant: account exists but no matches yet
+        if game_lower == "valorant":
+            return {
+                "ok": False,
+                "error": "no_match_history",
+                "game": game.name,
+                "message": "Аккаунт найден, но нет сыгранных матчей. Сыграй хотя бы одну игру в Valorant."
+            }
         return {"ok": False, "error": "api_fetch_failed", "game": game.name}
 
     stats = (await db.execute(select(Stats).where(Stats.user_id == user_id))).scalar_one_or_none()
