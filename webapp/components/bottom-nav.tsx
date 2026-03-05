@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useProfile } from "@/lib/use-profile";
 
 function SpeedometerIcon() {
     return (
@@ -54,12 +55,26 @@ const tabs = [
     { href: "/", icon: SpeedometerIcon, label: "Power" },
     { href: "/roles", icon: PodiumIcon, label: "Stats" },
     { href: "/leaderboard", icon: TrophyIcon, label: "", center: true },
-    { href: "/history", icon: ClockIcon, label: "Matches" },
-    { href: "/account", icon: GearIcon, label: "Settings" },
+    { href: "/matches", icon: ClockIcon, label: "Matches" },
+    { href: "/settings", icon: GearIcon, label: "Settings" },
 ];
+
+const GAME_THEMES: Record<string, { gradient: string; accent: string; glow: string }> = {
+    "Valorant": { gradient: "linear-gradient(135deg, #fd4556 0%, #1f1225 100%)", accent: "#fd4556", glow: "rgba(253,69,86,0.3)" },
+    "CS2": { gradient: "linear-gradient(135deg, #de9b35 0%, #1a1a2e 100%)", accent: "#de9b35", glow: "rgba(222,155,53,0.3)" },
+    "League of Legends": { gradient: "linear-gradient(135deg, #c89b3c 0%, #091428 100%)", accent: "#c89b3c", glow: "rgba(200,155,60,0.3)" },
+    "Dota 2": { gradient: "linear-gradient(135deg, #e44d2e 0%, #1a1a2e 100%)", accent: "#e44d2e", glow: "rgba(228,77,46,0.3)" },
+    "Apex Legends": { gradient: "linear-gradient(135deg, #cd3333 0%, #1a1a2e 100%)", accent: "#cd3333", glow: "rgba(205,51,51,0.3)" },
+    "Overwatch 2": { gradient: "linear-gradient(135deg, #fa9c1e 0%, #1a1a2e 100%)", accent: "#fa9c1e", glow: "rgba(250,156,30,0.3)" },
+    "Fortnite": { gradient: "linear-gradient(135deg, #9d4dbb 0%, #1a1a2e 100%)", accent: "#9d4dbb", glow: "rgba(157,77,187,0.3)" },
+};
+
+const DEFAULT_THEME = { gradient: "linear-gradient(135deg, #a78bfa 0%, #1a0a2e 100%)", accent: "#a78bfa", glow: "rgba(167,139,250,0.3)" };
 
 export default function BottomNav() {
     const pathname = usePathname();
+    const { profile } = useProfile();
+    const theme = GAME_THEMES[profile?.game_name || ""] || DEFAULT_THEME;
 
     return (
         <nav className="bottom-nav">
@@ -71,7 +86,11 @@ export default function BottomNav() {
                 if (tab.center) {
                     return (
                         <Link key={i} href={tab.href} className="nav-item center-item">
-                            <span className="nav-icon" style={{ animation: "glowBorder 3s ease-in-out infinite" }}>
+                            <span className="nav-icon" style={{
+                                animation: "glowBorder 3s ease-in-out infinite",
+                                background: theme.gradient,
+                                boxShadow: `0 4px 16px ${theme.glow}`
+                            }}>
                                 <Icon />
                             </span>
                         </Link>
@@ -80,11 +99,14 @@ export default function BottomNav() {
 
                 return (
                     <Link key={i} href={tab.href} className={`nav-item${isActive ? " active" : ""}`}
-                        style={{ transition: "color 0.25s ease, transform 0.2s ease" }}>
+                        style={{
+                            color: isActive ? theme.accent : "var(--text-muted)",
+                            transition: "color 0.25s ease, transform 0.2s ease"
+                        }}>
                         <span className="nav-icon" style={{
                             transition: "transform 0.2s ease, filter 0.3s ease",
                             transform: isActive ? "scale(1.15)" : "scale(1)",
-                            filter: isActive ? "drop-shadow(0 0 6px rgba(167, 139, 250, 0.6))" : "none",
+                            filter: isActive ? `drop-shadow(0 0 6px ${theme.glow})` : "none",
                         }}>
                             <Icon />
                         </span>
