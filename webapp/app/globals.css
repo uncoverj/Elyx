@@ -6,48 +6,17 @@
 
 /* ── Figma Design Tokens ── */
 :root {
-  --bg-deep: #0b0e14;
-  --bg-main: #0f1219;
-  --bg-card: #161a23;
-  --bg-card-hover: #1c2029;
-  --bg-elevated: #1f2430;
-  --bg-input: #1a1e28;
-
-  --text-primary: #e8eaed;
-  --text-secondary: #8b8fa3;
-  --text-muted: #555968;
-  --text-accent: #a78bfa;
-
-  --accent-red: #ef4444;
-  --accent-orange: #f97316;
-  --accent-yellow: #eab308;
-  --accent-green: #10b981;
-  --accent-blue: #3b82f6;
-  --accent-purple: #a78bfa;
-  --accent-pink: #ec4899;
-  --accent-cyan: #06b6d4;
-
-  --win-green: #10b981;
-  --loss-red: #ef4444;
-
-  --gradient-fire: linear-gradient(135deg, #e63946 0%, #ff6b35 100%);
-  --gradient-royal: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
-  --gradient-ocean: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
-  --gradient-success: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-  --gradient-gold: linear-gradient(135deg, #eab308 0%, #f97316 100%);
-  --gradient-filter-pill: linear-gradient(135deg, #6d28d9 0%, #9333ea 100%);
-
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-card: rgba(255, 255, 255, 0.08);
-
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --radius-full: 999px;
-
-  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.25);
-
+  --bg-primary: #0D1117;
+  --bg-card: #161B22;
+  --bg-card-hover: #1C2128;
+  --border: #30363D;
+  --text-primary: #FFFFFF;
+  --text-secondary: #8B949E;
+  --accent-red: #FF4655;
+  --accent-purple: #7B2FBE;
+  --accent-green: #3FB950;
+  --accent-blue: #4A9EFF;
+  --accent-orange: #FF6B00;
   --nav-height: 64px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -1934,4 +1903,93 @@ body {
   .hero-banner {
     height: 320px;
   }
+}
+
+/* ── Tab Bar ── */
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  background: #0D1117;
+  border-top: 1px solid #1E2530;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 8px 0 20px 0;
+  z-index: 100;
+  max-width: 430px;
+  margin: 0 auto;
+}
+
+.tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: #8B949E;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.tab-item.active {
+  color: #FFFFFF;
+}
+
+.tab-item.active::after {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  margin-top: 2px;
+}
+
+.tab-center {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FF4655, #7B2FBE);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -20px;
+  box-shadow: 0 4px 20px rgba(255, 70, 85, 0.4);
+  text-decoration: none;
+  transition: transform 0.2s ease;
+}
+
+.tab-center:hover {
+  transform: scale(1.05);
+}
+
+.tab-item span {
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.tab-item.active span {
+  font-weight: 600;
+}
+
+/* ── Body & Layout ── */
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  max-width: 430px;
+  margin: 0 auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  padding-bottom: 100px; /* Space for tab bar */
+}
+
+.card {
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  margin-bottom: 8px;
 }

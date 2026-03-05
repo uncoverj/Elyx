@@ -174,13 +174,49 @@ export default function AccountPage() {
                 </div>
               ) : (
                 <button className="btn btn-connect" onClick={() => { setEditingProvider(provider); setInputValue(""); }}
-                  style={{ background: "var(--gradient-ocean)", fontSize: 12 }}>
+                  style={{ background: "var(--accent-blue)", fontSize: 12 }}>
                   Привязать
                 </button>
               )}
             </div>
           );
         })}
+      </div>
+
+      {/* Swap to Games */}
+      <div className="section fade-in stagger-5">
+        <h2 className="section-title slide-in-left">Swap to</h2>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {games.map((g, i) => (
+            <button
+              key={g.id}
+              onClick={() => profile?.game_id !== g.id && handleSwitchGame(g.id)}
+              disabled={switching}
+              className="fade-in"
+              style={{
+                animationDelay: `${0.1 + i * 0.05}s`,
+                padding: "8px 12px",
+                borderRadius: "12px",
+                border: "1px solid var(--border)",
+                background: profile?.game_id === g.id ? "var(--accent-orange)" : "var(--bg-card)",
+                color: "var(--text-primary)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                opacity: switching ? 0.5 : 1,
+              }}
+            >
+              {g.name === "Valorant" && "🎯 VALORANT"}
+              {g.name === "CS2" && "🔫 CS2★"}
+              {g.name === "League of Legends" && "⚔️ LoL"}
+              {g.name === "Dota 2" && "🛡️ DOTA2"}
+              {g.name === "Fortnite" && "🏗️ FORTNITE"}
+              {g.name === "Apex Legends" && "🏹 APEX"}
+              {g.name === "Overwatch 2" && "🌟 OW2"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Refresh */}
