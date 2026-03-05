@@ -1,8 +1,14 @@
 "use client";
 
 import { ProfileProvider } from "@/lib/use-profile";
+import WebAppInit from "@/components/webapp-init";
 import type { ReactNode } from "react";
 
 export function Providers({ children }: { children: ReactNode }) {
-    return <ProfileProvider>{children}</ProfileProvider>;
+    return (
+        <>
+            <WebAppInit />
+            <ProfileProvider>{children}</ProfileProvider>
+        </>
+    );
 }

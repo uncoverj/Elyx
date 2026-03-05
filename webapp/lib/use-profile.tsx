@@ -74,7 +74,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     const refreshProfile = useCallback(async () => {
         try {
             setError(null);
-            const data = await backendFetch("/profiles/me");
+            const data = await backendFetch<ProfileData>("/profiles/me");
             setProfile(data);
         } catch (e: any) {
             // 404 = no profile yet, not really an error
@@ -88,14 +88,14 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
     const loadGames = useCallback(async () => {
         try {
-            const data = await backendFetch("/games");
+            const data = await backendFetch<GameInfo[]>("/games");
             setGames(data);
         } catch { }
     }, []);
 
     const loadAccounts = useCallback(async () => {
         try {
-            const data = await backendFetch("/account/accounts");
+            const data = await backendFetch<LinkedAccount[]>("/account/accounts");
             setAccounts(data);
         } catch {
             setAccounts([]);
@@ -104,7 +104,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
     const refreshStats = useCallback(async () => {
         try {
-            const result = await backendFetch("/account/refresh-stats", { method: "POST" });
+            const result = await backendFetch<{ ok: boolean; error?: string }>("/account/refresh-stats", { method: "POST" });
             if (result.ok) {
                 await refreshProfile();
             }

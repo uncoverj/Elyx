@@ -21,10 +21,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     cache: 'no-store',
   })
   if (!res.ok) {
-    const text = await res.text()
+    let text = ""
+    try {
+      const body = await res.json()
+      text = body?.detail || body?.error || JSON.stringify(body)
+    } catch {
+      text = await res.text()
+    }
     throw new Error(text || `API error: ${res.status}`)
   }
-  return res.json()
+  return (await res.json()) as T
 }
 
 export const api = {
@@ -61,6 +67,6 @@ export const leaderboardApi = {
 }
 
 // Legacy compat — existing code uses backendFetch
-export async function backendFetch(path: string, options: RequestInit = {}) {
-  return request(path, options)
+export async function backendFetch<T = unknown>(path: string, options: RequestInit = {}) {
+  return request<T>(path, options)
 }
