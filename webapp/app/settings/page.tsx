@@ -51,26 +51,28 @@ const GAMES = [
 ];
 
 export default function SettingsPage() {
-  const { profile, linkAccount, switchGame } = useProfile();
+  const { profile, accounts, linkAccount, switchGame } = useProfile();
   const [editing, setEditing] = useState<string | null>(null);
   const [inputVal, setInputVal] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
-  const [linked, setLinked] = useState<Record<string, string>>({
-    riot: "Sygar#lovly",
-    steam: "Prosto_lol33",
-  });
 
   const handleLink = async (provider: string) => {
     if (!inputVal.trim()) return;
     setSaving(provider);
     try {
       await linkAccount(provider, inputVal.trim());
-      setLinked(prev => ({ ...prev, [provider]: inputVal.trim() }));
     } catch { }
     setEditing(null);
     setInputVal("");
     setSaving(null);
   };
+
+  const linkedMap = accounts.reduce<Record<string, string>>((acc, item) => {
+    if (item.connected && item.account_ref) {
+      acc[item.provider] = item.account_ref;
+    }
+    return acc;
+  }, {});
 
   return (
     <main className="fade-in">
@@ -89,7 +91,7 @@ export default function SettingsPage() {
       </div>
       <div className="space-y-3" style={{ padding: "0 16px" }}>
         {ACCOUNT_PRESETS.map(acc => {
-          const isLinked = Boolean(linked[acc.provider]);
+          const isLinked = Boolean(linkedMap[acc.provider]);
           const isEditing = editing === acc.provider;
           return (
             <div key={acc.provider} style={{ display: "flex", flexDirection: "column", gap: isEditing ? 10 : 0 }}>
@@ -103,7 +105,7 @@ export default function SettingsPage() {
                 <div className="account-info">
                   <p className="account-name">{acc.name}</p>
                   <p className="account-ref">
-                    {isLinked ? linked[acc.provider] : acc.desc}
+                    {isLinked ? linkedMap[acc.provider] : acc.desc}
                   </p>
                 </div>
 

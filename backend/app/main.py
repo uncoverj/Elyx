@@ -1,5 +1,4 @@
 import asyncio
-
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import and_, or_, select
@@ -41,6 +40,7 @@ app.add_middleware(
 
 
 _background_tasks: list[asyncio.Task] = []
+SUPPORTED_ACCOUNT_PROVIDERS = ("riot", "steam", "faceit", "blizzard", "epic")
 
 
 @app.on_event("startup")
@@ -436,6 +436,10 @@ async def link_faceit(
 
 
 async def _link_account(db: AsyncSession, user_id: int, provider: str, account_ref: str):
+    normalized_ref = _normalize_account_ref(provider, account_ref)
+    if not normalized_ref:
+        raise HTTPException(status_code=400, detail="Invalid account reference")
+
     row = (
         await db.execute(
             select(ExternalAccount).where(
@@ -444,11 +448,62 @@ async def _link_account(db: AsyncSession, user_id: int, provider: str, account_r
         )
     ).scalar_one_or_none()
     if row:
-        row.account_ref = account_ref
+        row.account_ref = normalized_ref
     else:
-        db.add(ExternalAccount(user_id=user_id, provider=provider, account_ref=account_ref, verified=False))
+        db.add(ExternalAccount(user_id=user_id, provider=provider, account_ref=normalized_ref, verified=False))
     await db.commit()
     return {"ok": True, "provider": provider, "verified": False}
+
+
+def _normalize_account_ref(provider: str, account_ref: str) -> str | None:
+    value = (account_ref or "").strip()
+    if not value:
+        return None
+
+    if provider == "riot":
+        value = value.replace("＃", "#").replace("%23", "#")
+        if value.count("#") != 1:
+            return None
+        name, tag = value.split("#", 1)
+        if not name.strip() or not tag.strip():
+            return None
+        if len(name.strip()) > 32 or len(tag.strip()) > 16:
+            return None
+        return f"{name.strip()}#{tag.strip()}"
+
+    if provider == "steam":
+        if len(value) < 2:
+            return None
+        return value
+
+    if provider in ("faceit", "blizzard", "epic"):
+        if len(value) < 2 or len(value) > 128:
+            return None
+        return value
+
+    return None
+
+
+@app.get("/account/accounts")
+async def list_linked_accounts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (
+        await db.execute(
+            select(ExternalAccount).where(ExternalAccount.user_id == current_user.id)
+        )
+    ).scalars().all()
+    by_provider = {row.provider: row for row in rows}
+    return [
+        {
+            "provider": provider,
+            "account_ref": by_provider[provider].account_ref if provider in by_provider else None,
+            "connected": provider in by_provider,
+            "verified": bool(by_provider[provider].verified) if provider in by_provider else False,
+        }
+        for provider in SUPPORTED_ACCOUNT_PROVIDERS
+    ]
 
 
 @app.post("/account/refresh-stats")

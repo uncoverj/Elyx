@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from urllib.parse import quote
 
 import httpx
 
@@ -47,7 +48,9 @@ def _henrik_headers() -> dict[str, str]:
 async def _detect_region(client: httpx.AsyncClient, name: str, tag: str, headers: dict) -> str | None:
     """Use Henrik /v1/account to auto-detect player region."""
     try:
-        resp = await client.get(f"{HENRIK_BASE}/v1/account/{name}/{tag}", headers=headers)
+        safe_name = quote(name, safe="")
+        safe_tag = quote(tag, safe="")
+        resp = await client.get(f"{HENRIK_BASE}/v1/account/{safe_name}/{safe_tag}", headers=headers)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
             region = data.get("region")
@@ -73,7 +76,9 @@ async def _detect_region(client: httpx.AsyncClient, name: str, tag: str, headers
 
 async def _fetch_mmr(client: httpx.AsyncClient, region: str, name: str, tag: str, headers: dict) -> tuple[str | None, int | None]:
     """Fetch MMR data, returns (rank_name, rank_points)."""
-    resp = await client.get(f"{HENRIK_BASE}/v2/mmr/{region}/{name}/{tag}", headers=headers)
+    safe_name = quote(name, safe="")
+    safe_tag = quote(tag, safe="")
+    resp = await client.get(f"{HENRIK_BASE}/v2/mmr/{region}/{safe_name}/{safe_tag}", headers=headers)
     if resp.status_code == 200:
         data = resp.json().get("data", {})
         current = data.get("current_data", {})
@@ -89,8 +94,10 @@ async def _fetch_mmr(client: httpx.AsyncClient, region: str, name: str, tag: str
 
 async def _fetch_match_stats(client: httpx.AsyncClient, region: str, name: str, tag: str, headers: dict) -> tuple[float | None, float | None]:
     """Fetch K/D and winrate from recent competitive matches."""
+    safe_name = quote(name, safe="")
+    safe_tag = quote(tag, safe="")
     resp = await client.get(
-        f"{HENRIK_BASE}/v3/matches/{region}/{name}/{tag}",
+        f"{HENRIK_BASE}/v3/matches/{region}/{safe_name}/{safe_tag}",
         params={"size": 10, "filter": "competitive"},
         headers=headers,
     )
@@ -132,12 +139,16 @@ async def _fetch_match_stats(client: httpx.AsyncClient, region: str, name: str, 
 
 async def fetch_valorant_stats(riot_id: str) -> ValorantStats | None:
     """Fetch Valorant MMR + match stats for a Riot ID like 'Name#Tag'."""
-    parts = riot_id.replace(" ", "").split("#")
+    normalized = (riot_id or "").strip().replace("＃", "#")
+    parts = normalized.split("#", 1)
     if len(parts) != 2:
         logger.warning("Invalid Riot ID format: %s (expected Name#Tag)", riot_id)
         return None
 
-    name, tag = parts[0], parts[1]
+    name, tag = parts[0].strip(), parts[1].strip()
+    if not name or not tag:
+        logger.warning("Invalid Riot ID format: %s (empty name/tag)", riot_id)
+        return None
     headers = _henrik_headers()
 
     try:

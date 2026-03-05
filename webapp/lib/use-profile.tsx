@@ -93,6 +93,15 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         } catch { }
     }, []);
 
+    const loadAccounts = useCallback(async () => {
+        try {
+            const data = await backendFetch("/account/accounts");
+            setAccounts(data);
+        } catch {
+            setAccounts([]);
+        }
+    }, []);
+
     const refreshStats = useCallback(async () => {
         try {
             const result = await backendFetch("/account/refresh-stats", { method: "POST" });
@@ -138,17 +147,17 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         });
         // Refresh stats after linking
         await backendFetch("/account/refresh-stats", { method: "POST" }).catch(() => { });
-        await refreshProfile();
-    }, [refreshProfile]);
+        await Promise.all([refreshProfile(), loadAccounts()]);
+    }, [refreshProfile, loadAccounts]);
 
     useEffect(() => {
         const init = async () => {
             setLoading(true);
-            await Promise.all([refreshProfile(), loadGames()]);
+            await Promise.all([refreshProfile(), loadGames(), loadAccounts()]);
             setLoading(false);
         };
         init();
-    }, [refreshProfile, loadGames]);
+    }, [refreshProfile, loadGames, loadAccounts]);
 
     return (
         <ProfileContext.Provider value={{
