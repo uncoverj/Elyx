@@ -1141,7 +1141,7 @@ body {
   }
 }
 
-@media (min-width: 768px) {
+@media (min-width: 768px) and (max-width: 899px) {
   body {
     padding: 14px 0;
     background:
@@ -1160,5 +1160,51 @@ body {
   .tab-bar {
     border-bottom-left-radius: 24px;
     border-bottom-right-radius: 24px;
+  }
+}
+
+@media (min-width: 900px) {
+  :root {
+    --shell-max-width: 100vw;
+    --tabbar-height: 78px;
+  }
+
+  body {
+    padding: 0;
+    background: var(--bg-base);
+  }
+
+  .app-shell {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    min-height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+
+  .app-content {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .tab-bar {
+    left: 0;
+    transform: none;
+    width: 100vw;
+    max-width: none;
+    justify-content: center;
+    gap: 22px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .tab-item {
+    min-width: 96px;
+  }
+
+  .tab-center {
+    margin: 0 10px;
   }
 }
