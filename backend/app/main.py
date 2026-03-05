@@ -84,6 +84,11 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/")
+async def root() -> dict[str, str]:
+    return {"service": "elyx-backend", "status": "ok", "docs": "/docs"}
+
+
 @app.get("/api/test-keys")
 async def test_api_keys():
     """Test all configured API keys and return their validity status."""

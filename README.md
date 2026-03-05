@@ -206,6 +206,8 @@ Recommended split:
 
 Bot and backend must stay online continuously for reliable notifications and matching.
 
+Detailed Railway + Vercel setup is documented in [DEPLOY.md](DEPLOY.md).
+
 ## Architecture (3-layer)
 
 1. **Bot API** (aiogram v3) — registration, menus, search UX, notifications, leaderboard display
