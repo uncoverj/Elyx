@@ -216,72 +216,78 @@ export default function ProfilePage() {
       </section>
 
       <section className="valo-page">
-        <div className="valo-chip-row">
-          <span className="valo-chip" style={{ borderColor: theme.border, color: theme.accent }}>
-            Competitive
-          </span>
-          <span className="valo-chip">Season E26:A1</span>
-          <span className="valo-chip">{stats?.verified ? "Verified" : "Unverified"}</span>
-        </div>
+        <div className="valo-dashboard">
+          <div className="valo-main-col">
+            <div className="valo-chip-row">
+              <span className="valo-chip" style={{ borderColor: theme.border, color: theme.accent }}>
+                Competitive
+              </span>
+              <span className="valo-chip">Season E26:A1</span>
+              <span className="valo-chip">{stats?.verified ? "Verified" : "Unverified"}</span>
+            </div>
 
-        <div className="valo-rank-panels">
-          <article className="valo-rank-card">
-            <p>Current rank</p>
-            <h3>{stats?.rank_name ?? "Unranked"}</h3>
-            <span>{stats?.rank_points != null ? `${stats.rank_points} points` : "No points yet"}</span>
-          </article>
-          <article className="valo-rank-card">
-            <p>Peak rank</p>
-            <h3>{peakRank ?? "Unknown"}</h3>
-            <span>{score > 0 ? "Estimated from current progression" : "Play ranked to unlock"}</span>
-          </article>
-        </div>
+            <div className="valo-rank-panels">
+              <article className="valo-rank-card">
+                <p>Current rank</p>
+                <h3>{stats?.rank_name ?? "Unranked"}</h3>
+                <span>{stats?.rank_points != null ? `${stats.rank_points} points` : "No points yet"}</span>
+              </article>
+              <article className="valo-rank-card">
+                <p>Peak rank</p>
+                <h3>{peakRank ?? "Unknown"}</h3>
+                <span>{score > 0 ? "Estimated from current progression" : "Play ranked to unlock"}</span>
+              </article>
+            </div>
 
-        <h2 className="valo-section-title">Overview</h2>
-        <div className="valo-overview-grid">
-          {overviewCards.map((card) => (
-            <article key={card.label} className="valo-overview-card">
-              <p>{card.label}</p>
-              <h4>{card.value}</h4>
-              <span>{card.note}</span>
-            </article>
-          ))}
-        </div>
-
-        <h2 className="valo-section-title">Account status</h2>
-        <div className="valo-status-list">
-          <div className="valo-status-row">
-            <span>Telegram</span>
-            <strong>{profile.tg_id ? "Connected" : "Missing"}</strong>
+            <h2 className="valo-section-title">Overview</h2>
+            <div className="valo-overview-grid">
+              {overviewCards.map((card) => (
+                <article key={card.label} className="valo-overview-card">
+                  <p>{card.label}</p>
+                  <h4>{card.value}</h4>
+                  <span>{card.note}</span>
+                </article>
+              ))}
+            </div>
           </div>
-          <div className="valo-status-row">
-            <span>Riot ID</span>
-            <strong>{riot?.connected ? riot.account_ref : "Not linked"}</strong>
-          </div>
-          <div className="valo-status-row">
-            <span>Stats provider</span>
-            <strong>{stats?.source ?? "N/A"}</strong>
-          </div>
-          <div className="valo-status-row">
-            <span>Data status</span>
-            <strong>{stats?.source_status ?? "N/A"}</strong>
-          </div>
-        </div>
 
-        <h2 className="valo-section-title">Switch game</h2>
-        <div className="game-pills" style={{ paddingLeft: 0, paddingRight: 0 }}>
-          {orderedGames.map((g) => (
-            <button
-              key={g.id}
-              className={`game-pill${profile.game_id === g.id ? " active" : ""}`}
-              onClick={() => switchGame(g.id)}
-            >
-              {g.name}
-            </button>
-          ))}
-        </div>
+          <aside className="valo-side-col">
+            <h2 className="valo-section-title">Account status</h2>
+            <div className="desktop-card">
+              <div className="desktop-kv">
+                <span>Telegram</span>
+                <strong>{profile.tg_id ? "Connected" : "Missing"}</strong>
+              </div>
+              <div className="desktop-kv">
+                <span>Riot ID</span>
+                <strong>{riot?.connected ? riot.account_ref : "Not linked"}</strong>
+              </div>
+              <div className="desktop-kv">
+                <span>Stats provider</span>
+                <strong>{stats?.source ?? "N/A"}</strong>
+              </div>
+              <div className="desktop-kv">
+                <span>Data status</span>
+                <strong>{stats?.source_status ?? "N/A"}</strong>
+              </div>
+            </div>
 
-        {refreshMessage ? <p className="valo-note">{refreshMessage}</p> : null}
+            <h2 className="valo-section-title">Switch game</h2>
+            <div className="game-pills" style={{ paddingLeft: 0, paddingRight: 0 }}>
+              {orderedGames.map((g) => (
+                <button
+                  key={g.id}
+                  className={`game-pill${profile.game_id === g.id ? " active" : ""}`}
+                  onClick={() => switchGame(g.id)}
+                >
+                  {g.name}
+                </button>
+              ))}
+            </div>
+
+            {refreshMessage ? <p className="valo-note">{refreshMessage}</p> : null}
+          </aside>
+        </div>
       </section>
     </main>
   );

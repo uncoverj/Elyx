@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.handlers import router
 
 
-async def _assert_backend_available(base_url: str, retries: int = 20, delay_seconds: float = 1.5) -> None:
+async def _assert_backend_available(base_url: str, retries: int = 20, delay_seconds: float = 1.5) -> bool:
     health_url = f"{base_url.rstrip('/')}/health"
     last_error: Exception | None = None
 
@@ -20,7 +20,7 @@ async def _assert_backend_available(base_url: str, retries: int = 20, delay_seco
                 response.raise_for_status()
                 if attempt > 1:
                     logging.info("Backend became available on attempt %s", attempt)
-                return
+                return True
         except httpx.HTTPError as exc:
             last_error = exc
             if attempt < retries:
@@ -32,10 +32,12 @@ async def _assert_backend_available(base_url: str, retries: int = 20, delay_seco
                 )
                 await asyncio.sleep(delay_seconds)
 
-    raise RuntimeError(
-        "Backend is unreachable. Start backend first (./run_backend.ps1) and verify "
-        f"{health_url}"
-    ) from last_error
+    logging.error(
+        "Backend health check failed after %s retries: %s",
+        retries,
+        last_error,
+    )
+    return False
 
 
 async def main() -> None:
@@ -45,11 +47,28 @@ async def main() -> None:
     if not settings.bot_token.strip():
         raise RuntimeError("BOT_TOKEN is missing. Set BOT_TOKEN in your .env file before starting the bot.")
 
-    await _assert_backend_available(settings.backend_url)
+    logging.info("Starting bot. backend_url=%s", settings.backend_url)
+    backend_ok = await _assert_backend_available(settings.backend_url)
+    if not backend_ok and settings.strict_backend_check:
+        raise RuntimeError(
+            "Backend is unreachable and STRICT_BACKEND_CHECK=true. "
+            "Set BACKEND_URL correctly or disable strict check."
+        )
 
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+
+    # Clear stale webhook when running polling mode (common reason for silent non-response).
+    await bot.delete_webhook(drop_pending_updates=settings.drop_pending_updates)
+    me = await bot.get_me()
+    logging.info("Bot connected as @%s (%s)", me.username, me.id)
+
+    if not backend_ok:
+        logging.warning(
+            "Bot is online, but backend is unavailable. Commands that require API calls may fail "
+            "until BACKEND_URL becomes reachable."
+        )
 
     await dp.start_polling(bot)
 

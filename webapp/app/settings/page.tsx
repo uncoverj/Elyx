@@ -93,110 +93,110 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <section style={{ margin: "0 0 18px", padding: "0 12px" }}>
-        <div className="card" style={{ padding: 0, borderRadius: 22, overflow: "hidden", background: "#0d1334", borderColor: "#1a2152" }}>
-          {ACCOUNT_PRESETS.map((acc, idx) => {
-            const isLinked = Boolean(linkedMap[acc.provider]);
-            const isEditing = editing === acc.provider;
-            return (
-              <div key={acc.provider} style={{ borderTop: idx === 0 ? "none" : "1px solid rgba(109,123,192,0.18)", padding: "14px 14px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 20, lineHeight: 1.2, fontWeight: 700 }}>{acc.name}</p>
-                    <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-                      {isLinked ? linkedMap[acc.provider] : acc.hint}
-                    </p>
+      <section style={{ padding: "0 12px 24px" }}>
+        <div className="layout-grid-2">
+          <div className="card" style={{ padding: 0, borderRadius: 22, overflow: "hidden", background: "#0d1334", borderColor: "#1a2152" }}>
+            {ACCOUNT_PRESETS.map((acc, idx) => {
+              const isLinked = Boolean(linkedMap[acc.provider]);
+              const isEditing = editing === acc.provider;
+              return (
+                <div key={acc.provider} style={{ borderTop: idx === 0 ? "none" : "1px solid rgba(109,123,192,0.18)", padding: "14px 14px 12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 20, lineHeight: 1.2, fontWeight: 700 }}>{acc.name}</p>
+                      <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                        {isLinked ? linkedMap[acc.provider] : acc.hint}
+                      </p>
+                    </div>
+                    {!isEditing && (
+                      <button
+                        onClick={() => handleStartEdit(acc.provider)}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: isLinked ? "#a8b4ff" : "var(--text-secondary)",
+                          fontSize: 16,
+                          cursor: "pointer",
+                          padding: 0,
+                        }}
+                      >
+                        {isLinked ? "connected" : "disconnected"}
+                      </button>
+                    )}
                   </div>
-                  {!isEditing && (
-                    <button
-                      onClick={() => handleStartEdit(acc.provider)}
-                      style={{
-                        border: "none",
-                        background: "transparent",
-                        color: isLinked ? "#a8b4ff" : "var(--text-secondary)",
-                        fontSize: 16,
-                        cursor: "pointer",
-                        padding: 0,
-                      }}
-                    >
-                      {isLinked ? "connect" : "disconnected"}
-                    </button>
+
+                  {isEditing && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginTop: 10 }}>
+                      <input
+                        value={inputVal}
+                        onChange={(e) => setInputVal(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleLink(acc.provider)}
+                        placeholder={acc.placeholder}
+                        autoFocus
+                        style={{
+                          width: "100%",
+                          background: "#181f4f",
+                          border: "1px solid #242d6a",
+                          borderRadius: 10,
+                          color: "var(--text-primary)",
+                          height: 40,
+                          padding: "0 12px",
+                          outline: "none",
+                        }}
+                      />
+                      <button
+                        onClick={() => handleLink(acc.provider)}
+                        disabled={saving === acc.provider}
+                        style={{
+                          border: "none",
+                          borderRadius: 10,
+                          background: "linear-gradient(135deg, #f04367 0%, #ff6b7f 100%)",
+                          color: "#fff",
+                          fontWeight: 700,
+                          height: 40,
+                          padding: "0 16px",
+                          cursor: "pointer",
+                          minWidth: 95,
+                        }}
+                      >
+                        {saving === acc.provider ? "..." : "Connect"}
+                      </button>
+                    </div>
                   )}
                 </div>
+              );
+            })}
+          </div>
 
-                {isEditing && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginTop: 10 }}>
-                    <input
-                      value={inputVal}
-                      onChange={(e) => setInputVal(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleLink(acc.provider)}
-                      placeholder={acc.placeholder}
-                      autoFocus
-                      style={{
-                        width: "100%",
-                        background: "#181f4f",
-                        border: "1px solid #242d6a",
-                        borderRadius: 10,
-                        color: "var(--text-primary)",
-                        height: 40,
-                        padding: "0 12px",
-                        outline: "none",
-                      }}
-                    />
-                    <button
-                      onClick={() => handleLink(acc.provider)}
-                      disabled={saving === acc.provider}
-                      style={{
-                        border: "none",
-                        borderRadius: 10,
-                        background: "linear-gradient(135deg, #f04367 0%, #ff6b7f 100%)",
-                        color: "#fff",
-                        fontWeight: 700,
-                        height: 40,
-                        padding: "0 16px",
-                        cursor: "pointer",
-                        minWidth: 95,
-                      }}
-                    >
-                      {saving === acc.provider ? "..." : "Connect"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          <div className="desktop-card" style={{ borderRadius: 22, background: "#0d1334", borderColor: "#1a2152" }}>
+            <p style={{ textAlign: "center", color: "var(--text-primary)", marginBottom: 12, fontSize: 22 }}>Swap to</p>
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 2 }}>
+              {orderedGames.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => switchGame(g.id)}
+                  className={`game-pill${profile?.game_id === g.id ? " active" : ""}`}
+                  style={{
+                    minWidth: 74,
+                    padding: "9px 12px",
+                    borderRadius: 12,
+                    fontSize: 12,
+                    background: profile?.game_id === g.id ? "linear-gradient(135deg, #f9a825 0%, #ea8e17 100%)" : "#1a214f",
+                    borderColor: profile?.game_id === g.id ? "transparent" : "#2b3577",
+                    color: profile?.game_id === g.id ? "#111" : "#d6dcff",
+                    boxShadow: "none",
+                  }}
+                >
+                  {gameShort(g.name)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {error && (
           <div style={{ marginTop: 10, fontSize: 13, color: "#ff9daf", paddingLeft: 4 }}>{error}</div>
         )}
-      </section>
-
-      <section style={{ padding: "0 12px 24px" }}>
-        <div className="card" style={{ padding: "14px 14px 12px", borderRadius: 22, background: "#0d1334", borderColor: "#1a2152" }}>
-          <p style={{ textAlign: "center", color: "var(--text-primary)", marginBottom: 12, fontSize: 22 }}>Swap to</p>
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 2 }}>
-            {orderedGames.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => switchGame(g.id)}
-                className={`game-pill${profile?.game_id === g.id ? " active" : ""}`}
-                style={{
-                  minWidth: 74,
-                  padding: "9px 12px",
-                  borderRadius: 12,
-                  fontSize: 12,
-                  background: profile?.game_id === g.id ? "linear-gradient(135deg, #f9a825 0%, #ea8e17 100%)" : "#1a214f",
-                  borderColor: profile?.game_id === g.id ? "transparent" : "#2b3577",
-                  color: profile?.game_id === g.id ? "#111" : "#d6dcff",
-                  boxShadow: "none",
-                }}
-              >
-                {gameShort(g.name)}
-              </button>
-            ))}
-          </div>
-        </div>
       </section>
     </main>
   );

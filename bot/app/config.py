@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     backend_url: str = "http://127.0.0.1:8000"
     service_token: str = "local-service-token"
     webapp_url: str = "http://localhost:3000"
+    strict_backend_check: bool = False
+    drop_pending_updates: bool = True
 
     model_config = SettingsConfigDict(env_file=ROOT_ENV_FILE, extra="ignore")
 

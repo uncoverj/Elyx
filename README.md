@@ -205,6 +205,7 @@ Recommended split:
 4. Managed Postgres + Redis
 
 Bot and backend must stay online continuously for reliable notifications and matching.
+The bot should run as a Railway Worker with `cd bot && python -m app.main` and `BACKEND_URL` pointing to the backend public URL.
 
 Detailed Railway + Vercel setup is documented in [DEPLOY.md](DEPLOY.md).
 

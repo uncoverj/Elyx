@@ -89,3 +89,34 @@ It should return:
 - Backend dependencies live in `backend/requirements.txt`.
 - Bot dependencies live in `bot/requirements.txt`.
 - Railway backend must install only `backend/requirements.txt`.
+
+## 4) Telegram bot on Railway (separate service)
+
+Deploy bot as a separate Railway service (Worker/Background service), not inside the backend service.
+
+- `Install Command`:
+```bash
+pip install -r bot/requirements.txt
+```
+
+- `Start Command`:
+```bash
+cd bot && python -m app.main
+```
+
+Required bot env vars:
+
+- `BOT_TOKEN=<telegram_bot_token>`
+- `BACKEND_URL=https://elyx-production.up.railway.app`
+- `SERVICE_TOKEN=<same as backend SERVICE_TOKEN>`
+- `WEBAPP_URL=https://<your-vercel-domain>.vercel.app`
+
+Optional bot env vars:
+
+- `STRICT_BACKEND_CHECK=false`
+- `DROP_PENDING_UPDATES=true`
+
+Notes:
+
+- Bot uses long polling, so no public HTTP route is required for the bot worker.
+- Bot now clears stale webhook on startup, which prevents polling/webhook conflicts.
