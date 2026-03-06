@@ -1,242 +1,288 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import WebAppInit from "@/components/webapp-init";
-import { useProfile } from "@/lib/use-profile";
+import { useMemo, useState } from "react";
+
 import { SkeletonProfile } from "@/components/skeleton";
+import { useProfile } from "@/lib/use-profile";
 
-const GAME_THEMES: Record<string, { accent: string; glow: string; gradient: string }> = {
-  "Valorant": { accent: "#FF4655", glow: "rgba(255,70,85,0.2)", gradient: "linear-gradient(180deg, rgba(255,70,85,0.18) 0%, transparent 60%)" },
-  "CS2": { accent: "#DE9B35", glow: "rgba(222,155,53,0.2)", gradient: "linear-gradient(180deg, rgba(222,155,53,0.18) 0%, transparent 60%)" },
-  "League of Legends": { accent: "#C89B3C", glow: "rgba(200,155,60,0.2)", gradient: "linear-gradient(180deg, rgba(200,155,60,0.18) 0%, transparent 60%)" },
-  "Dota 2": { accent: "#E44D2E", glow: "rgba(228,77,46,0.2)", gradient: "linear-gradient(180deg, rgba(228,77,46,0.18) 0%, transparent 60%)" },
-  "Apex Legends": { accent: "#CD3333", glow: "rgba(205,51,51,0.2)", gradient: "linear-gradient(180deg, rgba(205,51,51,0.18) 0%, transparent 60%)" },
-  "Overwatch 2": { accent: "#FA9C1E", glow: "rgba(250,156,30,0.2)", gradient: "linear-gradient(180deg, rgba(250,156,30,0.18) 0%, transparent 60%)" },
-  "Fortnite": { accent: "#9D4DBB", glow: "rgba(157,77,187,0.2)", gradient: "linear-gradient(180deg, rgba(157,77,187,0.18) 0%, transparent 60%)" },
+type Theme = {
+  accent: string;
+  accentSoft: string;
+  border: string;
+  hero: string;
 };
-const DEFAULT_THEME = { accent: "#7B2FBE", glow: "rgba(123,47,190,0.2)", gradient: "linear-gradient(180deg, rgba(123,47,190,0.18) 0%, transparent 60%)" };
 
-function getRankEmoji(rank: string | null) {
-  if (!rank) return "🎮";
-  const r = rank.toLowerCase();
-  if (r.includes("iron")) return "⚫";
-  if (r.includes("bronze")) return "🟤";
-  if (r.includes("silver")) return "⚪";
-  if (r.includes("gold")) return "🟡";
-  if (r.includes("platinum")) return "🩵";
-  if (r.includes("diamond")) return "💎";
-  if (r.includes("ascendant")) return "💚";
-  if (r.includes("immortal")) return "🔴";
-  if (r.includes("radiant")) return "🌟";
-  if (r.includes("level 1") || r.includes("level 2")) return "⚪";
-  if (r.includes("level 3") || r.includes("level 4")) return "🟤";
-  if (r.includes("level 5") || r.includes("level 6")) return "🟡";
-  if (r.includes("level 7") || r.includes("level 8")) return "💎";
-  if (r.includes("level 9") || r.includes("level 10")) return "🟣";
-  return "🎮";
+const GAME_THEMES: Record<string, Theme> = {
+  Valorant: {
+    accent: "#ff4d67",
+    accentSoft: "rgba(255,77,103,0.2)",
+    border: "rgba(255,77,103,0.35)",
+    hero:
+      "radial-gradient(110% 130% at 0% 0%, rgba(255,77,103,0.45) 0%, rgba(255,77,103,0.1) 28%, transparent 68%), linear-gradient(180deg, rgba(10,16,40,0.35) 0%, #090f2a 88%)",
+  },
+  CS2: {
+    accent: "#f0a23c",
+    accentSoft: "rgba(240,162,60,0.2)",
+    border: "rgba(240,162,60,0.35)",
+    hero:
+      "radial-gradient(110% 130% at 0% 0%, rgba(240,162,60,0.4) 0%, rgba(240,162,60,0.1) 30%, transparent 68%), linear-gradient(180deg, rgba(10,16,40,0.35) 0%, #090f2a 88%)",
+  },
+};
+
+const DEFAULT_THEME: Theme = {
+  accent: "#7b8cff",
+  accentSoft: "rgba(123,140,255,0.2)",
+  border: "rgba(123,140,255,0.35)",
+  hero:
+    "radial-gradient(110% 130% at 0% 0%, rgba(123,140,255,0.4) 0%, rgba(123,140,255,0.1) 30%, transparent 68%), linear-gradient(180deg, rgba(10,16,40,0.35) 0%, #090f2a 88%)",
+};
+
+const VAL_RANKS = [
+  "Iron 1",
+  "Iron 2",
+  "Iron 3",
+  "Bronze 1",
+  "Bronze 2",
+  "Bronze 3",
+  "Silver 1",
+  "Silver 2",
+  "Silver 3",
+  "Gold 1",
+  "Gold 2",
+  "Gold 3",
+  "Platinum 1",
+  "Platinum 2",
+  "Platinum 3",
+  "Diamond 1",
+  "Diamond 2",
+  "Diamond 3",
+  "Ascendant 1",
+  "Ascendant 2",
+  "Ascendant 3",
+  "Immortal 1",
+  "Immortal 2",
+  "Immortal 3",
+  "Radiant",
+];
+
+function estimatePeakRank(currentRank: string | null): string | null {
+  if (!currentRank) return null;
+  const normalized = currentRank.trim();
+  const idx = VAL_RANKS.findIndex((r) => r.toLowerCase() === normalized.toLowerCase());
+  if (idx < 0) return currentRank;
+  return VAL_RANKS[Math.min(idx + 2, VAL_RANKS.length - 1)];
 }
 
-interface StatCardProps {
-  title: string;
-  value: string;
-  percentile?: string;
-  positive?: boolean;
+function toPercent(value: number | null | undefined, fallback = "N/A"): string {
+  if (value == null) return fallback;
+  return `${value.toFixed(1)}%`;
 }
 
-function StatCard({ title, value, percentile, positive }: StatCardProps) {
-  const [width, setWidth] = useState(0);
-  const pctNum = percentile ? parseInt(percentile.replace(/\D+/g, "")) : 50;
-  const fill = positive ? 100 - pctNum : pctNum;
+function toFixed(value: number | null | undefined, digits = 2, fallback = "N/A"): string {
+  if (value == null) return fallback;
+  return value.toFixed(digits);
+}
 
-  useEffect(() => {
-    const t = setTimeout(() => setWidth(Math.max(5, Math.min(100, fill))), 120);
-    return () => clearTimeout(t);
-  }, [fill]);
+function getTierHint(score: number): string {
+  if (score >= 8500) return "Elite tier";
+  if (score >= 6500) return "High tier";
+  if (score >= 4500) return "Mid tier";
+  if (score > 0) return "Entry tier";
+  return "Unrated";
+}
 
+function TelegramBadge({ username }: { username: string | null | undefined }) {
   return (
-    <div className={`stat-card ${positive ? "stat-positive" : "stat-negative"}`}>
-      <p className="stat-card-label">{title}</p>
-      <p className="stat-card-value">{value}</p>
-      {percentile && <p className="stat-card-pct">{percentile}</p>}
-      <div className="stat-card-bar">
-        <div className="stat-card-fill" style={{ width: `${width}%` }}>
-          <div className="stat-card-dot" />
-        </div>
-      </div>
+    <div className="tg-badge">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M21.4 4.6a1.8 1.8 0 0 0-1.9-.3L3 10.7a1.7 1.7 0 0 0 .1 3.2l3.7 1.2 1.4 4.2a1.7 1.7 0 0 0 3 .5l2.1-2.6 3.8 2.8a1.8 1.8 0 0 0 2.8-1l2.3-12.7a1.8 1.8 0 0 0-.8-1.7Zm-4.1 3.3-7.7 6.9a.8.8 0 0 0-.3.6l-.2 2.3-.8-2.4a.8.8 0 0 0-.5-.5l-2.4-.8 12-4.8Z"
+        />
+      </svg>
+      <span>{username ? `@${username}` : "Telegram connected"}</span>
     </div>
   );
 }
 
 export default function ProfilePage() {
-  const { profile, loading, error, refreshStats, games, switchGame } = useProfile();
+  const { profile, accounts, games, loading, error, refreshStats, switchGame } = useProfile();
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    setRefreshMessage(null);
     const result = await refreshStats();
     setRefreshing(false);
-    if (!result.ok && result.error === "no_match_history") {
-      alert("⚠️ Аккаунт найден, но нет сыгранных матчей. Сыграй хотя бы одну игру!");
+    if (result.ok) {
+      setRefreshMessage("Stats refreshed");
+      return;
     }
+    setRefreshMessage(result.error || "Refresh failed");
   };
 
-  const theme = GAME_THEMES[profile?.game_name ?? ""] ?? DEFAULT_THEME;
+  if (loading) {
+    return (
+      <main>
+        <SkeletonProfile />
+      </main>
+    );
+  }
 
-  if (loading) return (
-    <main><WebAppInit /><SkeletonProfile /></main>
-  );
+  if (!profile) {
+    return (
+      <main>
+        <div className="loading-screen">
+          <div className="loading-logo">ELYX</div>
+          <p style={{ color: "var(--text-secondary)", fontSize: 13, textAlign: "center", padding: "0 32px" }}>
+            {error ?? "Profile not found. Open bot in Telegram and complete registration."}
+          </p>
+        </div>
+      </main>
+    );
+  }
 
-  if (!profile) return (
-    <main>
-      <WebAppInit />
-      <div className="loading-screen">
-        <div className="loading-logo">ELYX</div>
-        <p style={{ color: "var(--text-secondary)", fontSize: 13, textAlign: "center", padding: "0 32px" }}>
-          {error ?? "Профиль не найден. Зарегистрируйся через бота в Telegram."}
-        </p>
-      </div>
-    </main>
-  );
+  const stats = profile.stats;
+  const theme = GAME_THEMES[profile.game_name] ?? DEFAULT_THEME;
+  const riot = accounts.find((a) => a.provider === "riot");
+  const peakRank = estimatePeakRank(stats?.rank_name ?? null);
+  const trustVotes = (profile.trust_up ?? 0) + (profile.trust_down ?? 0);
+  const trustPercent = trustVotes > 0 ? Math.round((profile.trust_up / trustVotes) * 100) : 100;
+  const score = stats?.unified_score ?? 0;
 
-  const s = profile.stats;
-  const kd = s?.kd != null ? s.kd.toFixed(2) : "—";
-  const wr = s?.winrate != null ? `${s.winrate.toFixed(1)}%` : "—";
-  const rank = s?.rank_name ?? "Unranked";
-  const rankEmoji = getRankEmoji(s?.rank_name ?? null);
+  const orderedGames = useMemo(() => [...games].sort((a, b) => a.name.localeCompare(b.name)), [games]);
 
-  const trustTotal = (profile.trust_up ?? 0) + (profile.trust_down ?? 0);
-  const trustPct = trustTotal > 0 ? Math.round((profile.trust_up / trustTotal) * 100) : 100;
-
-  // Stats slots
-  const statsCards = [
-    { title: "K/D Ratio", value: kd, percentile: s?.kd ? (s.kd > 1.2 ? "Top 30%" : "Bottom 40%") : undefined, positive: (s?.kd ?? 0) > 1.1 },
-    { title: "Win Rate", value: wr, percentile: s?.winrate ? (s.winrate > 55 ? "Top 20%" : "Bottom 45%") : undefined, positive: (s?.winrate ?? 0) > 52 },
-    { title: "Trust Score", value: `${trustPct}%`, percentile: `${trustPct} pts`, positive: trustPct > 70 },
-    { title: "Unified Score", value: `${s?.unified_score ?? 0}`, percentile: s?.rank_name ? "Rated" : "Not rated", positive: (s?.unified_score ?? 0) > 4000 },
+  const overviewCards = [
+    {
+      label: "K/D Ratio",
+      value: toFixed(stats?.kd, 2),
+      note: stats?.kd != null ? (stats.kd >= 1 ? "Strong impact" : "Improve survivability") : "No data",
+    },
+    {
+      label: "Win Rate",
+      value: toPercent(stats?.winrate),
+      note: stats?.winrate != null ? (stats.winrate >= 55 ? "Top performance" : "Can be improved") : "No data",
+    },
+    {
+      label: "Elyx Score",
+      value: `${score}`,
+      note: getTierHint(score),
+    },
+    {
+      label: "Trust",
+      value: `${trustPercent}%`,
+      note: `${profile.trust_up} up / ${profile.trust_down} down`,
+    },
   ];
 
   return (
     <main className="fade-in">
-      <WebAppInit />
-
-      {/* ── Hero Banner ─────────────────────────────── */}
-      <div className="hero-banner" style={{ background: theme.gradient }}>
-        <div
-          style={{
-            position: "absolute", inset: 0,
-            background: "linear-gradient(to bottom, transparent 40%, var(--bg-surface) 100%)"
-          }}
-        />
-        {/* ELYX logo */}
+      <section className="valo-hero" style={{ background: theme.hero, borderBottomColor: theme.border }}>
         <span className="hero-elyx-logo">ELYX</span>
 
-        <div className="hero-content">
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            {/* Avatar */}
-            <div className="avatar-wrap">
-              <div className="avatar-glow" style={{ background: theme.glow }} />
-              <div className="avatar" style={{
-                width: 52, height: 52,
-                background: `linear-gradient(135deg, ${theme.accent}33, var(--bg-card))`,
-                border: `2px solid ${theme.accent}50`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 22
-              }}>
-                {profile.game_name[0] ?? "?"}
-              </div>
+        <div className="valo-head">
+          <div className="valo-avatar" style={{ borderColor: theme.border }}>
+            {profile.nickname.slice(0, 1).toUpperCase()}
+          </div>
+
+          <div className="valo-main">
+            <div className="valo-nickname-row">
+              <h1>{profile.nickname}</h1>
+              {profile.is_premium ? <span className="valo-premium">PREMIUM</span> : null}
             </div>
-
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                <span style={{ fontWeight: 800, fontSize: 17, color: "var(--text-primary)" }}>
-                  {profile.nickname}
-                </span>
-                {profile.is_premium && <span style={{ color: "#F0A500" }}>⭐</span>}
-              </div>
-              <div style={{ display: "flex", gap: 12 }}>
-                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>👍 {profile.trust_up}</span>
-                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>👎 {profile.trust_down}</span>
-                <span style={{ fontSize: 12, color: theme.accent }}>{profile.game_name}</span>
-              </div>
-            </div>
+            <TelegramBadge username={profile.username} />
           </div>
 
-          {/* Rank */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="rank-badge" style={{
-              background: `${theme.accent}1A`,
-              borderColor: `${theme.accent}40`,
-              color: theme.accent
-            }}>
-              {rankEmoji} {rank}
-            </span>
-            {s?.rank_points && (
-              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                {s.rank_points} pts
-              </span>
-            )}
+          <button className="valo-refresh-btn" onClick={handleRefresh} disabled={refreshing}>
+            {refreshing ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        <div className="valo-stat-strip">
+          <div>
+            <strong>{profile.game_name}</strong>
+            <span>Main game</span>
+          </div>
+          <div>
+            <strong>{trustPercent}%</strong>
+            <span>Trust</span>
+          </div>
+          <div>
+            <strong>{score}</strong>
+            <span>Score</span>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* ── Game Switcher ─────────────────────────── */}
-      {games.length > 0 && (
-        <div style={{ padding: "12px 0 0" }}>
-          <div className="section-hd">
-            <span className="section-title">Текущая игра</span>
+      <section className="valo-page">
+        <div className="valo-chip-row">
+          <span className="valo-chip" style={{ borderColor: theme.border, color: theme.accent }}>
+            Competitive
+          </span>
+          <span className="valo-chip">Season E26:A1</span>
+          <span className="valo-chip">{stats?.verified ? "Verified" : "Unverified"}</span>
+        </div>
+
+        <div className="valo-rank-panels">
+          <article className="valo-rank-card">
+            <p>Current rank</p>
+            <h3>{stats?.rank_name ?? "Unranked"}</h3>
+            <span>{stats?.rank_points != null ? `${stats.rank_points} points` : "No points yet"}</span>
+          </article>
+          <article className="valo-rank-card">
+            <p>Peak rank</p>
+            <h3>{peakRank ?? "Unknown"}</h3>
+            <span>{score > 0 ? "Estimated from current progression" : "Play ranked to unlock"}</span>
+          </article>
+        </div>
+
+        <h2 className="valo-section-title">Overview</h2>
+        <div className="valo-overview-grid">
+          {overviewCards.map((card) => (
+            <article key={card.label} className="valo-overview-card">
+              <p>{card.label}</p>
+              <h4>{card.value}</h4>
+              <span>{card.note}</span>
+            </article>
+          ))}
+        </div>
+
+        <h2 className="valo-section-title">Account status</h2>
+        <div className="valo-status-list">
+          <div className="valo-status-row">
+            <span>Telegram</span>
+            <strong>{profile.tg_id ? "Connected" : "Missing"}</strong>
           </div>
-          <div className="game-pills">
-            {games.map(g => (
-              <button
-                key={g.id}
-                className={`game-pill${profile.game_id === g.id ? " active" : ""}`}
-                onClick={() => switchGame(g.id)}
-              >
-                {g.name}
-              </button>
-            ))}
+          <div className="valo-status-row">
+            <span>Riot ID</span>
+            <strong>{riot?.connected ? riot.account_ref : "Not linked"}</strong>
+          </div>
+          <div className="valo-status-row">
+            <span>Stats provider</span>
+            <strong>{stats?.source ?? "N/A"}</strong>
+          </div>
+          <div className="valo-status-row">
+            <span>Data status</span>
+            <strong>{stats?.source_status ?? "N/A"}</strong>
           </div>
         </div>
-      )}
 
-      {/* ── Stat Cards 2×2 ────────────────────────── */}
-      <div className="section-hd">
-        <span className="section-title">Статистика</span>
-        <button onClick={handleRefresh} disabled={refreshing}
-          style={{ fontSize: 12, color: theme.accent, fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>
-          {refreshing ? "⏳" : "↻ Обновить"}
-        </button>
-      </div>
-
-      <div className="card-grid-2">
-        {statsCards.map(sc => (
-          <StatCard key={sc.title} {...sc} />
-        ))}
-      </div>
-
-      {/* ── Bottom summary ────────────────────────── */}
-      <div style={{ margin: "0 16px 24px" }}>
-        <div className="card" style={{ padding: "14px 16px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 0 }}>
-            {[
-              { label: "Роли", value: profile.roles?.join(", ") || "—", color: theme.accent },
-              { label: "Теги", value: profile.tags?.slice(0, 2).join(", ") || "—", color: "var(--text-primary)" },
-              { label: "Возраст", value: profile.age?.toString() ?? "—", color: "var(--text-primary)" },
-            ].map((item, i) => (
-              <div key={i} style={{
-                textAlign: "center",
-                padding: "0 8px",
-                borderLeft: i > 0 ? "1px solid var(--border-subtle)" : "none"
-              }}>
-                <p style={{ fontSize: 10, color: "var(--text-secondary)", marginBottom: 4 }}>{item.label}</p>
-                <p style={{ fontSize: 13, fontWeight: 700, color: item.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.value}
-                </p>
-              </div>
-            ))}
-          </div>
+        <h2 className="valo-section-title">Switch game</h2>
+        <div className="game-pills" style={{ paddingLeft: 0, paddingRight: 0 }}>
+          {orderedGames.map((g) => (
+            <button
+              key={g.id}
+              className={`game-pill${profile.game_id === g.id ? " active" : ""}`}
+              onClick={() => switchGame(g.id)}
+            >
+              {g.name}
+            </button>
+          ))}
         </div>
-      </div>
+
+        {refreshMessage ? <p className="valo-note">{refreshMessage}</p> : null}
+      </section>
     </main>
   );
 }
