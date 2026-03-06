@@ -19,8 +19,8 @@ Write-Host "[bot] Installing dependencies..." -ForegroundColor Yellow
 & $pythonExe -m pip install --upgrade pip
 & $pythonExe -m pip install -r (Join-Path $botDir "requirements.txt")
 
-if (-not (Test-Path (Join-Path $PSScriptRoot ".env"))) {
-    throw "[bot] Root .env not found. Copy .env.example to .env and set BOT_TOKEN."
+if (-not (Test-Path (Join-Path $PSScriptRoot ".env")) -and -not (Test-Path (Join-Path $botDir ".env"))) {
+    throw "[bot] No env file found. Create either .env in repo root or bot\\.env and set BOT_TOKEN."
 }
 
 Write-Host "[bot] Launching bot..." -ForegroundColor Green

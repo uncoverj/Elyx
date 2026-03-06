@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+BOT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 class Settings(BaseSettings):
@@ -15,7 +16,10 @@ class Settings(BaseSettings):
     strict_backend_check: bool = False
     drop_pending_updates: bool = True
 
-    model_config = SettingsConfigDict(env_file=ROOT_ENV_FILE, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(BOT_ENV_FILE, ROOT_ENV_FILE),
+        extra="ignore",
+    )
 
 
 @lru_cache

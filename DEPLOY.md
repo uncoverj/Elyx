@@ -120,3 +120,5 @@ Notes:
 
 - Bot uses long polling, so no public HTTP route is required for the bot worker.
 - Bot now clears stale webhook on startup, which prevents polling/webhook conflicts.
+- If the bot service logs show `BACKEND_URL points to localhost inside Railway`, your bot env is wrong.
+- Do not rely on the repo root `Procfile` for the bot. The root `Procfile` starts only the backend web service.

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 import httpx
 from aiogram import Bot, Dispatcher
@@ -42,12 +43,20 @@ async def _assert_backend_available(base_url: str, retries: int = 20, delay_seco
 
 async def main() -> None:
     settings = get_settings()
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     if not settings.bot_token.strip():
         raise RuntimeError("BOT_TOKEN is missing. Set BOT_TOKEN in your .env file before starting the bot.")
 
     logging.info("Starting bot. backend_url=%s", settings.backend_url)
+    if os.getenv("RAILWAY_ENVIRONMENT") and settings.backend_url.startswith("http://127.0.0.1"):
+        logging.error(
+            "BACKEND_URL points to localhost inside Railway. "
+            "Set BACKEND_URL=https://elyx-production.up.railway.app in the bot service env vars."
+        )
     backend_ok = await _assert_backend_available(settings.backend_url)
     if not backend_ok and settings.strict_backend_check:
         raise RuntimeError(
@@ -63,6 +72,7 @@ async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=settings.drop_pending_updates)
     me = await bot.get_me()
     logging.info("Bot connected as @%s (%s)", me.username, me.id)
+    logging.info("Polling started")
 
     if not backend_ok:
         logging.warning(
