@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     bot_token: str = ""
     service_token: str = "local-service-token"
+    admin_ids: str = ""
     database_url: str = ""
     redis_url: str = "redis://redis:6379/0"
     cors_origin: str = "*"
@@ -29,6 +30,17 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_admin_ids() -> set[int]:
+    raw = get_settings().admin_ids
+    admin_ids: set[int] = set()
+    for chunk in raw.split(","):
+        value = chunk.strip()
+        if value.isdigit():
+            admin_ids.add(int(value))
+    return admin_ids
 
 
 def _looks_like_docker_postgres_host(database_url: str) -> bool:

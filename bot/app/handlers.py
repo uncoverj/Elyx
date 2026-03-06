@@ -7,12 +7,15 @@ matches with pagination, profile editing, settings with smart account linking.
 
 from datetime import datetime, timezone
 
+import httpx
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types.error_event import ErrorEvent
 
 from app.api import backend
+from app.config import get_admin_ids
 from app.first_move import generate_first_moves
 from app.keyboards import (
     ACCOUNT_DATA_KB,
@@ -29,6 +32,7 @@ from app.keyboards import (
     first_move_kb,
     green_flags_kb,
     leaderboard_nav,
+    main_menu_kb,
     match_username_kb,
     matches_nav,
     react_kb,
@@ -36,11 +40,21 @@ from app.keyboards import (
     webapp_inline_kb,
 )
 from app.states import BrowsingState, MatchesState, ProfileEditState, RegistrationState, SettingsState
-from app.storage import current_candidates, letters_target, matches_cache, matches_index, pending_reactions, registration_drafts
+from app.storage import (
+    current_candidates,
+    custom_first_move_target,
+    letters_target,
+    matches_cache,
+    matches_index,
+    pending_reactions,
+    registration_drafts,
+)
 from app.texts import (
+    ADMIN_TEXT,
     BIO_HINT,
     DEALBREAKER_HINT,
     GREEN_FLAGS_HINT,
+    HELP_TEXT,
     MATCH_CONGRATS,
     MOOD_HINT,
     NEED_PROFILE,
@@ -63,6 +77,9 @@ GAME_PROVIDER = {
     "dota 2": "steam",
     "league of legends": "riot",
     "apex legends": "steam",
+    "pubg": None,
+    "call of duty / warzone": None,
+    "rainbow six siege": None,
     "overwatch 2": "blizzard",
     "fortnite": "epic",
     "other": None,
@@ -78,6 +95,41 @@ PROVIDER_PROMPTS = {
 
 # Store first-move options in memory for callback handling
 _first_move_cache: dict[int, dict] = {}
+
+
+def _is_admin(tg_id: int) -> bool:
+    return tg_id in get_admin_ids()
+
+
+def _main_menu_markup(tg_id: int):
+    return main_menu_kb(is_admin=_is_admin(tg_id))
+
+
+def _backend_error_text(exc: httpx.HTTPStatusError) -> str:
+    status_code = exc.response.status_code
+    detail = ""
+    try:
+        payload = exc.response.json()
+        if isinstance(payload, dict):
+            detail = str(payload.get("detail", "")).strip()
+    except Exception:
+        detail = ""
+
+    if status_code == 401:
+        return "Сервис временно недоступен. Попробуй ещё раз через минуту."
+    if status_code == 403:
+        return detail or "Это действие сейчас недоступно."
+    if status_code == 404:
+        return detail or "Данные не найдены."
+    if status_code == 429:
+        return detail or "Слишком часто. Подожди немного и повтори."
+    if status_code >= 500:
+        return "Сервис перегружен. Попробуй ещё раз чуть позже."
+    return detail or "Не удалось обработать запрос."
+
+
+async def _answer_backend_error(message: Message, exc: httpx.HTTPStatusError, reply_markup=None) -> None:
+    await message.answer(f"⚠️ {_backend_error_text(exc)}", reply_markup=reply_markup)
 
 
 # ── Profile card builder ─────────────────────────────────
@@ -204,7 +256,7 @@ async def _show_next_candidate(message: Message, tg_id: int) -> None:
     data = await backend.get("/search/next", tg_id)
     candidate = data.get("candidate")
     if not candidate:
-        await message.answer(NO_CANDIDATES, reply_markup=MAIN_MENU)
+        await message.answer(NO_CANDIDATES, reply_markup=_main_menu_markup(message.from_user.id))
         return
     current_candidates[tg_id] = candidate["user_id"]
     await _send_profile_card(message, candidate, reply_markup=SEARCH_KB)
@@ -256,6 +308,141 @@ def _summary(draft: dict) -> str:
     )
 
 
+@router.message(Command("menu"))
+async def cmd_menu(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Главное меню", reply_markup=_main_menu_markup(message.from_user.id))
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    await message.answer(HELP_TEXT, reply_markup=_main_menu_markup(message.from_user.id))
+
+
+@router.message(Command("support"))
+async def cmd_support(message: Message) -> None:
+    await message.answer(SUPPORT_TEXT, reply_markup=SETTINGS_KB)
+
+
+@router.message(Command("profile"))
+async def cmd_profile(message: Message) -> None:
+    await my_profile(message)
+
+
+@router.message(Command("edit"))
+async def cmd_edit(message: Message) -> None:
+    tg_id = message.from_user.id
+    try:
+        profile = await backend.get("/profiles/me", tg_id)
+    except Exception:
+        await message.answer(NEED_PROFILE, reply_markup=_main_menu_markup(tg_id))
+        return
+    await _send_profile_card(message, profile, reply_markup=PROFILE_KB)
+
+
+@router.message(Command("find"))
+async def cmd_find(message: Message, state: FSMContext) -> None:
+    await search_mode(message, state)
+
+
+@router.message(Command("matches"))
+async def cmd_matches(message: Message, state: FSMContext) -> None:
+    await matches_open(message, state)
+
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message, state: FSMContext) -> None:
+    await settings_menu(message, state)
+
+
+@router.message(Command("leaderboard"))
+async def cmd_leaderboard(message: Message) -> None:
+    await leaderboard_cmd(message)
+
+
+@router.message(Command("premium"))
+async def cmd_premium(message: Message) -> None:
+    await premium_info(message)
+
+
+@router.message(Command("reset"))
+async def cmd_reset(message: Message, state: FSMContext) -> None:
+    tg_id = message.from_user.id
+    try:
+        await backend.post("/profiles/me/reset", tg_id)
+    except httpx.HTTPStatusError as exc:
+        await _answer_backend_error(message, exc, reply_markup=_main_menu_markup(tg_id))
+        return
+    await state.clear()
+    registration_drafts.pop(tg_id, None)
+    current_candidates.pop(tg_id, None)
+    pending_reactions.pop(tg_id, None)
+    letters_target.pop(tg_id, None)
+    custom_first_move_target.pop(tg_id, None)
+    await state.set_state(RegistrationState.nickname)
+    await message.answer("Анкета сброшена.\n\nШаг 1/11 — введи никнейм:", reply_markup=ReplyKeyboardRemove())
+
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message) -> None:
+    tg_id = message.from_user.id
+    if not _is_admin(tg_id):
+        await message.answer("Эта команда доступна только админу.", reply_markup=_main_menu_markup(tg_id))
+        return
+    try:
+        overview = await backend.get("/admin/overview", tg_id)
+    except httpx.HTTPStatusError as exc:
+        await _answer_backend_error(message, exc, reply_markup=_main_menu_markup(tg_id))
+        return
+    await message.answer(
+        ADMIN_TEXT
+        + "\n\n"
+        + f"Users: {overview.get('total_users', 0)}\n"
+        + f"Active today: {overview.get('active_users', 0)}\n"
+        + f"Profiles: {overview.get('profiles_created', 0)}\n"
+        + f"Matches: {overview.get('matches_created', 0)}\n"
+        + f"Open reports: {overview.get('open_reports', 0)}",
+        reply_markup=_main_menu_markup(tg_id),
+    )
+
+
+@router.message(Command("admin_reports"))
+async def cmd_admin_reports(message: Message) -> None:
+    tg_id = message.from_user.id
+    if not _is_admin(tg_id):
+        await message.answer("Эта команда доступна только админу.", reply_markup=_main_menu_markup(tg_id))
+        return
+    try:
+        rows = await backend.get("/admin/reports", tg_id)
+    except httpx.HTTPStatusError as exc:
+        await _answer_backend_error(message, exc, reply_markup=_main_menu_markup(tg_id))
+        return
+    if not rows:
+        await message.answer("No reports yet.", reply_markup=_main_menu_markup(tg_id))
+        return
+
+    lines = ["Open reports\n"]
+    for row in rows[:10]:
+        lines.append(f"#{row['report_id']} | user {row['target_user_id']} | {row['status']}\n{row['reason']}")
+    lines.append("\nResolve via /resolve_<id>")
+    await message.answer("\n\n".join(lines), reply_markup=_main_menu_markup(tg_id))
+
+
+@router.message(F.text.regexp(r"^/resolve_(\d+)$"))
+async def cmd_resolve_report(message: Message) -> None:
+    tg_id = message.from_user.id
+    if not _is_admin(tg_id):
+        await message.answer("Доступ только для админов.", reply_markup=_main_menu_markup(tg_id))
+        return
+    report_id = int((message.text or "").split("_", 1)[1])
+    try:
+        await backend.post(f"/admin/reports/{report_id}/resolve", tg_id)
+    except httpx.HTTPStatusError as exc:
+        await _answer_backend_error(message, exc, reply_markup=_main_menu_markup(tg_id))
+        return
+    await message.answer(f"Жалоба #{report_id} закрыта.", reply_markup=_main_menu_markup(tg_id))
+
+
 # ╔══════════════════════════════════════════════════════════╗
 # ║  /start                                                  ║
 # ╚══════════════════════════════════════════════════════════╝
@@ -267,7 +454,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     uname = message.from_user.username
     try:
         await backend.get("/profiles/me", tg_id, username=uname)
-        await message.answer("С возвращением! 💘", reply_markup=MAIN_MENU)
+        await message.answer("С возвращением! 💘", reply_markup=_main_menu_markup(message.from_user.id))
     except Exception:
         await message.answer(WELCOME)
         await state.set_state(RegistrationState.nickname)
@@ -549,7 +736,7 @@ async def reg_save(message: Message, state: FSMContext) -> None:
 
     registration_drafts.pop(tg_id, None)
     await state.clear()
-    await message.answer("Анкета сохранена! 🎉\nТеперь можешь искать людей 💘", reply_markup=MAIN_MENU)
+    await message.answer("Анкета сохранена! 🎉\nТеперь можешь искать людей 💘", reply_markup=_main_menu_markup(message.from_user.id))
 
 
 @router.message(RegistrationState.confirm, F.text == "✏️ Изменить")
@@ -565,8 +752,16 @@ async def reg_edit(message: Message, state: FSMContext) -> None:
 @router.message(F.text == "🏠 Главное меню")
 async def main_menu(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Главное меню 💘", reply_markup=MAIN_MENU)
+    await message.answer("Главное меню 💘", reply_markup=_main_menu_markup(message.from_user.id))
 
+
+@router.message(F.text == "ℹ️ Помощь")
+async def help_button(message: Message) -> None:
+    await message.answer(HELP_TEXT, reply_markup=_main_menu_markup(message.from_user.id))
+
+@router.message(F.text == "🛡 Админ-панель")
+async def admin_button(message: Message) -> None:
+    await cmd_admin(message)
 
 # ╔══════════════════════════════════════════════════════════╗
 # ║  Search — with mood selection                            ║
@@ -629,7 +824,7 @@ async def like_candidate(message: Message, bot: Bot) -> None:
 
     if result.get("match_created"):
         # MATCH! Send congrats + first move suggestions to both
-        await message.answer(MATCH_CONGRATS, reply_markup=MAIN_MENU)
+        await message.answer(MATCH_CONGRATS, reply_markup=_main_menu_markup(message.from_user.id))
 
         # Generate first move options
         options = generate_first_moves(me, them)
@@ -712,13 +907,59 @@ async def letter_send(message: Message, state: FSMContext, bot: Bot) -> None:
 @router.message(BrowsingState.active, F.text == "⛔ Стоп")
 async def stop_search(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Поиск остановлен ✋", reply_markup=MAIN_MENU)
+    await message.answer("Поиск остановлен ✋", reply_markup=_main_menu_markup(message.from_user.id))
 
+
+@router.message(BrowsingState.active, F.text == "🚫 Блок")
+async def block_candidate(message: Message) -> None:
+    tg_id = message.from_user.id
+    target = current_candidates.get(tg_id)
+    if not target:
+        await _show_next_candidate(message, tg_id)
+        return
+    try:
+        await backend.post("/actions/block", tg_id, {"target_user_id": target})
+    except httpx.HTTPStatusError as exc:
+        await _answer_backend_error(message, exc, reply_markup=SEARCH_KB)
+        return
+    await message.answer("🚫 Анкета скрыта и больше не покажется.", reply_markup=SEARCH_KB)
+    await _show_next_candidate(message, tg_id)
+
+@router.message(BrowsingState.active, F.text == "⚠️ Репорт")
+async def report_candidate_prompt(message: Message, state: FSMContext) -> None:
+    tg_id = message.from_user.id
+    if not current_candidates.get(tg_id):
+        await _show_next_candidate(message, tg_id)
+        return
+    await state.set_state(BrowsingState.report_reason)
+    await message.answer("⚠️ Кратко опиши причину жалобы (5-500 символов).", reply_markup=ReplyKeyboardRemove())
+
+@router.message(BrowsingState.report_reason)
+async def submit_report_reason(message: Message, state: FSMContext) -> None:
+    tg_id = message.from_user.id
+    reason = (message.text or "").strip()
+    target = current_candidates.get(tg_id)
+    if not target:
+        await state.set_state(BrowsingState.active)
+        await _show_next_candidate(message, tg_id)
+        return
+    if len(reason) < 5 or len(reason) > 500:
+        await message.answer("Нужен внятный текст от 5 до 500 символов.")
+        return
+    try:
+        await backend.post("/actions/report", tg_id, {"target_user_id": target, "reason": reason})
+    except httpx.HTTPStatusError as exc:
+        await state.set_state(BrowsingState.active)
+        await _answer_backend_error(message, exc, reply_markup=SEARCH_KB)
+        return
+    await state.set_state(BrowsingState.active)
+    await message.answer("✅ Жалоба отправлена. Спасибо.", reply_markup=SEARCH_KB)
+    await _show_next_candidate(message, tg_id)
 
 # ── First Move callback ──────────────────────────────────
 
 @router.callback_query(F.data.startswith("fm:"))
-async def first_move_cb(callback: CallbackQuery, bot: Bot) -> None:
+async def first_move_cb(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     """Handle first move message selection after a match."""
     parts = callback.data.split(":")
     if len(parts) < 3:
@@ -728,7 +969,7 @@ async def first_move_cb(callback: CallbackQuery, bot: Bot) -> None:
     tg_id = callback.from_user.id
     cache = _first_move_cache.get(tg_id)
     if not cache:
-        await callback.answer("Время истекло, напиши сам 😉")
+        await callback.answer("Варианты устарели, открой мэтч заново.")
         return
 
     choice = parts[2]
@@ -736,7 +977,12 @@ async def first_move_cb(callback: CallbackQuery, bot: Bot) -> None:
     target_name = cache["target_name"]
 
     if choice == "custom":
-        await callback.message.answer(f"✍️ Напиши своё сообщение для {target_name}:")
+        custom_first_move_target[tg_id] = target_tg_id
+        await state.set_state(MatchesState.first_move_custom)
+        await callback.message.answer(
+            f"✍️ Напиши своё сообщение для {target_name} (1-500 символов):",
+            reply_markup=ReplyKeyboardRemove(),
+        )
         await callback.answer()
         return
 
@@ -744,15 +990,32 @@ async def first_move_cb(callback: CallbackQuery, bot: Bot) -> None:
         idx = int(choice)
         text = cache["options"][idx]
     except (ValueError, IndexError):
-        await callback.answer("Ошибка")
+        await callback.answer("Неверный вариант")
         return
 
-    # Send the chosen message to the match partner
-    await _notify(bot, target_tg_id, f"💬 Сообщение от мэтча:\n\n«{text}»")
-    await callback.message.answer(f"✅ Отправлено {target_name}!")
+    await _notify(bot, target_tg_id, f"💌 Первое сообщение по мэтчу:\n\n{text}")
+    await callback.message.answer(f"✅ Сообщение отправлено {target_name}!")
     _first_move_cache.pop(tg_id, None)
+    custom_first_move_target.pop(tg_id, None)
     await callback.answer()
 
+@router.message(MatchesState.first_move_custom)
+async def send_custom_first_move(message: Message, state: FSMContext, bot: Bot) -> None:
+    tg_id = message.from_user.id
+    target_tg_id = custom_first_move_target.get(tg_id)
+    text = (message.text or "").strip()
+    if not target_tg_id:
+        await state.clear()
+        await message.answer("Мэтч не найден. Открой список мэтчей заново.", reply_markup=_main_menu_markup(tg_id))
+        return
+    if len(text) < 1 or len(text) > 500:
+        await message.answer("Сообщение должно быть от 1 до 500 символов.")
+        return
+    await _notify(bot, target_tg_id, f"💌 Первое сообщение по мэтчу:\n\n{text}")
+    custom_first_move_target.pop(tg_id, None)
+    _first_move_cache.pop(tg_id, None)
+    await state.clear()
+    await message.answer("✅ Сообщение отправлено.", reply_markup=_main_menu_markup(tg_id))
 
 # ╔══════════════════════════════════════════════════════════╗
 # ║  Notification reactions (view like, react)               ║
@@ -763,12 +1026,12 @@ async def view_like_sender(message: Message, state: FSMContext) -> None:
     tg_id = message.from_user.id
     sender_user_id = pending_reactions.pop(tg_id, None)
     if not sender_user_id:
-        await message.answer("Нет новых лайков 😔", reply_markup=MAIN_MENU)
+        await message.answer("Нет новых лайков 😔", reply_markup=_main_menu_markup(message.from_user.id))
         return
     try:
         profile = await backend.get(f"/profiles/{sender_user_id}", tg_id)
     except Exception:
-        await message.answer("Анкета недоступна", reply_markup=MAIN_MENU)
+        await message.answer("Анкета недоступна", reply_markup=_main_menu_markup(message.from_user.id))
         return
 
     pending_reactions[tg_id] = sender_user_id
@@ -782,7 +1045,7 @@ async def react_like(message: Message, state: FSMContext, bot: Bot) -> None:
     target = pending_reactions.pop(tg_id, None)
     if not target:
         await state.clear()
-        await message.answer("Главное меню 💘", reply_markup=MAIN_MENU)
+        await message.answer("Главное меню 💘", reply_markup=_main_menu_markup(message.from_user.id))
         return
 
     result = await backend.post("/actions/like", tg_id, {"target_user_id": target})
@@ -790,7 +1053,7 @@ async def react_like(message: Message, state: FSMContext, bot: Bot) -> None:
         me = await backend.get("/profiles/me", tg_id)
         them = await backend.get(f"/profiles/{target}", tg_id)
 
-        await message.answer(MATCH_CONGRATS, reply_markup=MAIN_MENU)
+        await message.answer(MATCH_CONGRATS, reply_markup=_main_menu_markup(message.from_user.id))
 
         # First move for me
         options = generate_first_moves(me, them)
@@ -810,7 +1073,7 @@ async def react_like(message: Message, state: FSMContext, bot: Bot) -> None:
             reply_markup=first_move_kb(me["user_id"], their_options),
         )
     else:
-        await message.answer("Лайк отправлен! 💘", reply_markup=MAIN_MENU)
+        await message.answer("Лайк отправлен! 💘", reply_markup=_main_menu_markup(message.from_user.id))
     await state.clear()
 
 
@@ -821,7 +1084,7 @@ async def react_skip(message: Message, state: FSMContext) -> None:
     if target:
         await backend.post("/actions/skip", tg_id, {"target_user_id": target})
     await state.clear()
-    await message.answer("Окей, идём дальше 😌", reply_markup=MAIN_MENU)
+    await message.answer("Окей, идём дальше 😌", reply_markup=_main_menu_markup(message.from_user.id))
 
 
 # ╔══════════════════════════════════════════════════════════╗
@@ -907,7 +1170,7 @@ async def save_new_bio(message: Message, state: FSMContext) -> None:
         return
     await _update_profile_partial(message.from_user.id, bio=bio)
     await state.clear()
-    await message.answer("✅ Текст обновлён!", reply_markup=MAIN_MENU)
+    await message.answer("✅ Текст обновлён!", reply_markup=_main_menu_markup(message.from_user.id))
 
 
 @router.message(ProfileEditState.media)
@@ -921,7 +1184,7 @@ async def save_new_media(message: Message, state: FSMContext) -> None:
         return
     await _update_profile_partial(message.from_user.id, media_type=mt, media_file_id=fid)
     await state.clear()
-    await message.answer("✅ Медиа обновлено!", reply_markup=MAIN_MENU)
+    await message.answer("✅ Медиа обновлено!", reply_markup=_main_menu_markup(message.from_user.id))
 
 
 # ╔══════════════════════════════════════════════════════════╗
@@ -933,7 +1196,7 @@ async def matches_open(message: Message, state: FSMContext) -> None:
     tg_id = message.from_user.id
     rows = await backend.get("/matches", tg_id)
     if not rows:
-        await message.answer("Пока нет мэтчей 😔\nПродолжай свайпать! 💪", reply_markup=MAIN_MENU)
+        await message.answer("Пока нет мэтчей 😔\nПродолжай свайпать! 💪", reply_markup=_main_menu_markup(message.from_user.id))
         return
 
     matches_cache[tg_id] = rows
@@ -946,7 +1209,7 @@ async def _show_match_card(message: Message, tg_id: int) -> None:
     rows = matches_cache.get(tg_id, [])
     idx = matches_index.get(tg_id, 0)
     if not rows:
-        await message.answer("Нет мэтчей 😔", reply_markup=MAIN_MENU)
+        await message.answer("Нет мэтчей 😔", reply_markup=_main_menu_markup(message.from_user.id))
         return
     item = rows[idx]
     username = item.get("username")
@@ -1006,8 +1269,20 @@ async def support(message: Message) -> None:
 @router.message(F.text == "🎮 Данные аккаунта")
 async def account_data(message: Message, state: FSMContext) -> None:
     await state.set_state(SettingsState.menu)
-    await message.answer("🎮 Привязка аккаунтов:", reply_markup=ACCOUNT_DATA_KB)
+    tg_id = message.from_user.id
+    summary = []
+    try:
+        accounts = await backend.get("/account/accounts", tg_id)
+        for account in accounts:
+            icon = "✅" if account.get("connected") else "○"
+            account_ref = account.get("account_ref") or "не подключен"
+            summary.append(f"- {account['provider']}: {icon} {account_ref}")
+    except httpx.HTTPStatusError as exc:
+        await _answer_backend_error(message, exc, reply_markup=ACCOUNT_DATA_KB)
+        return
 
+    text = "\U0001f3ae \u0418\u0433\u0440\u043e\u0432\u044b\u0435 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u044b\n\n" + "\n".join(summary) if summary else "\U0001f3ae \u0418\u0433\u0440\u043e\u0432\u044b\u0435 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u044b \u043f\u043e\u043a\u0430 \u043d\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u044b."
+    await message.answer(text, reply_markup=ACCOUNT_DATA_KB)
 
 @router.message(F.text == "Riot ID")
 async def riot_start(message: Message, state: FSMContext) -> None:
@@ -1162,7 +1437,7 @@ async def premium_info(message: Message) -> None:
 
 # ── Leaderboard ───────────────────────────────────────────
 
-@router.message(F.text == "Лидерборд")
+@router.message(F.text.in_(["🏆 Лидерборд", "📊 Лидерборд"]))
 async def leaderboard_cmd(message: Message) -> None:
     tg_id = message.from_user.id
     try:
@@ -1178,10 +1453,10 @@ async def leaderboard_cmd(message: Message) -> None:
     entries = data.get("entries", [])
     total = data.get("total", 0)
     if not entries:
-        await message.answer("🏆 Лидерборд пуст. Будь первым!", reply_markup=MAIN_MENU)
+        await message.answer("🏆 Лидерборд пока пуст. Будь первым!", reply_markup=_main_menu_markup(message.from_user.id))
         return
 
-    lines = [f"🏆 Лидерборд — {game_name}\n"]
+    lines = [f"\U0001f3c6 \u041b\u0438\u0434\u0435\u0440\u0431\u043e\u0440\u0434 \u2014 {game_name}\n"]
     for e in entries:
         pos = e.get("position", "?")
         nick = e.get("nickname", "?")
@@ -1191,6 +1466,10 @@ async def leaderboard_cmd(message: Message) -> None:
 
     total_pages = max(1, (total + 9) // 10)
     await message.answer("\n".join(lines), reply_markup=leaderboard_nav(1, total_pages))
+
+@router.callback_query(F.data == "lb_idx")
+async def leaderboard_index_cb(callback: CallbackQuery) -> None:
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("lb_page_"))
@@ -1241,3 +1520,19 @@ async def leaderboard_my_pos_cb(callback: CallbackQuery) -> None:
         await callback.answer(f"📊 Твоя позиция: #{pos.get('position', '?')} (Score: {pos.get('unified_score', 0)})", show_alert=True)
     else:
         await callback.answer("Ты ещё не в рейтинге. Привяжи аккаунт и обнови статистику!", show_alert=True)
+
+
+@router.error()
+async def on_router_error(event: ErrorEvent) -> None:
+    update = event.update
+    exception = event.exception
+
+    if isinstance(exception, httpx.HTTPStatusError) and getattr(update, "message", None):
+        await _answer_backend_error(update.message, exception, reply_markup=_main_menu_markup(update.message.from_user.id))
+        return
+
+    if getattr(update, "message", None):
+        await update.message.answer(
+            "⚠️ Что-то пошло не так. Попробуй ещё раз.",
+            reply_markup=_main_menu_markup(update.message.from_user.id),
+        )

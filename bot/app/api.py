@@ -21,9 +21,19 @@ class BackendClient:
             h["x-telegram-username"] = username
         return h
 
-    async def get(self, path: str, tg_id: int, username: str | None = None) -> Any:
+    async def get(
+        self,
+        path: str,
+        tg_id: int,
+        username: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.get(f"{self.base_url}{path}", headers=self._headers(tg_id, username))
+            response = await client.get(
+                f"{self.base_url}{path}",
+                headers=self._headers(tg_id, username),
+                params=params,
+            )
             response.raise_for_status()
             return response.json()
 
@@ -43,6 +53,15 @@ class BackendClient:
                 f"{self.base_url}{path}",
                 headers=self._headers(tg_id, username),
                 json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def delete(self, path: str, tg_id: int, username: str | None = None) -> Any:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.delete(
+                f"{self.base_url}{path}",
+                headers=self._headers(tg_id, username),
             )
             response.raise_for_status()
             return response.json()

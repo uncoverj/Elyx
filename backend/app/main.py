@@ -1,15 +1,17 @@
 import asyncio
+from datetime import datetime, timezone
+
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_database_url, get_settings
+from app.config import get_admin_ids, get_database_url, get_settings
 from app.database import Base, engine, get_db
 from app.deps import get_current_user
-from app.models import ExternalAccount, Game, LeaderboardEntry, Letter, Like, Match, Profile, Skip, Stats, TrustVote, User
+from app.models import Block, ExternalAccount, Game, LeaderboardEntry, Letter, Like, Match, Profile, Report, Skip, Stats, TrustVote, User
 from app.rate_limit import enforce_daily_limit
-from app.schemas import ActionTarget, LetterIn, LinkAccountIn, MatchOut, ProfileIn, TrustVoteIn
+from app.schemas import ActionTarget, LetterIn, LinkAccountIn, MatchOut, ProfileIn, ReportIn, TrustVoteIn
 from app.services.background_refresh import background_refresh_loop, can_manual_refresh
 from app.services.leaderboard import get_leaderboard, get_user_position, rebuild_all_leaderboards
 from app.services.matching import next_candidate
@@ -41,31 +43,37 @@ app.add_middleware(
 
 _background_tasks: list[asyncio.Task] = []
 SUPPORTED_ACCOUNT_PROVIDERS = ("riot", "steam", "faceit", "blizzard", "epic")
+SUPPORTED_GAMES = (
+    "Valorant",
+    "CS2",
+    "Dota 2",
+    "League of Legends",
+    "Fortnite",
+    "Apex Legends",
+    "PUBG",
+    "Call of Duty / Warzone",
+    "Rainbow Six Siege",
+    "Overwatch 2",
+    "Other",
+)
 
 
 @app.on_event("startup")
 async def seed_games() -> None:
-    if get_database_url().startswith("sqlite"):
+    try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+    except Exception:
+        if get_database_url().startswith("sqlite"):
+            raise
 
     from app.database import SessionLocal
 
     async with SessionLocal() as session:
-        exists = (await session.execute(select(Game.id).limit(1))).scalar_one_or_none()
-        if not exists:
-            session.add_all(
-                [
-                    Game(name="Valorant"),
-                    Game(name="CS2"),
-                    Game(name="Dota 2"),
-                    Game(name="League of Legends"),
-                    Game(name="Apex Legends"),
-                    Game(name="Overwatch 2"),
-                    Game(name="Fortnite"),
-                    Game(name="Other"),
-                ]
-            )
+        existing_names = set((await session.execute(select(Game.name))).scalars().all())
+        missing_games = [Game(name=name) for name in SUPPORTED_GAMES if name not in existing_names]
+        if missing_games:
+            session.add_all(missing_games)
             await session.commit()
 
     # Start background stats refresh loop (every 30 min)
@@ -87,6 +95,46 @@ async def health() -> dict[str, str]:
 @app.get("/")
 async def root() -> dict[str, str]:
     return {"service": "elyx-backend", "status": "ok", "docs": "/docs"}
+
+
+def _is_admin(user: User) -> bool:
+    return user.tg_id in get_admin_ids()
+
+
+def _as_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def _assert_not_blocked(db: AsyncSession, user_a: int, user_b: int) -> None:
+    blocked = (
+        await db.execute(
+            select(Block.id).where(
+                or_(
+                    and_(Block.from_user_id == user_a, Block.to_user_id == user_b),
+                    and_(Block.from_user_id == user_b, Block.to_user_id == user_a),
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if blocked:
+        raise HTTPException(status_code=403, detail="Interaction unavailable")
+
+
+async def _reset_user_state(db: AsyncSession, user_id: int) -> None:
+    await db.execute(delete(Profile).where(Profile.user_id == user_id))
+    await db.execute(delete(Stats).where(Stats.user_id == user_id))
+    await db.execute(delete(ExternalAccount).where(ExternalAccount.user_id == user_id))
+    await db.execute(delete(LeaderboardEntry).where(LeaderboardEntry.user_id == user_id))
+    await db.execute(delete(Like).where(or_(Like.from_user_id == user_id, Like.to_user_id == user_id)))
+    await db.execute(delete(Skip).where(or_(Skip.from_user_id == user_id, Skip.to_user_id == user_id)))
+    await db.execute(delete(Letter).where(or_(Letter.from_user_id == user_id, Letter.to_user_id == user_id)))
+    await db.execute(delete(Match).where(or_(Match.user_a == user_id, Match.user_b == user_id)))
+    await db.execute(delete(TrustVote).where(or_(TrustVote.from_user_id == user_id, TrustVote.to_user_id == user_id)))
+    await db.execute(delete(Block).where(or_(Block.from_user_id == user_id, Block.to_user_id == user_id)))
+    await db.execute(delete(Report).where(or_(Report.reporter_user_id == user_id, Report.target_user_id == user_id)))
+    await db.commit()
 
 
 @app.get("/api/test-keys")
@@ -190,9 +238,19 @@ async def upsert_my_profile(
     return await build_profile_out(db, current_user.id)
 
 
+@app.post("/profiles/me/reset")
+async def reset_my_profile(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _reset_user_state(db, current_user.id)
+    return {"ok": True}
+
+
 @app.get("/profiles/{user_id}")
 async def get_profile(user_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     _ = current_user
+    await _assert_not_blocked(db, current_user.id, user_id)
     profile = await build_profile_out(db, user_id)
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
@@ -216,6 +274,7 @@ async def action_like(
 ):
     if payload.target_user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot like self")
+    await _assert_not_blocked(db, current_user.id, payload.target_user_id)
 
     if not current_user.is_premium:
         await enforce_daily_limit(current_user.id, "likes", 100)
@@ -260,6 +319,7 @@ async def action_skip(
 ):
     if payload.target_user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot skip self")
+    await _assert_not_blocked(db, current_user.id, payload.target_user_id)
 
     existing = (
         await db.execute(
@@ -282,6 +342,7 @@ async def action_letter(
 ):
     if payload.target_user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot send letter to self")
+    await _assert_not_blocked(db, current_user.id, payload.target_user_id)
 
     if not current_user.is_premium:
         await enforce_daily_limit(current_user.id, "letters", 5)
@@ -302,6 +363,18 @@ async def get_matches(current_user: User = Depends(get_current_user), db: AsyncS
     output: list[MatchOut] = []
     for row in rows:
         other_id = row.user_b if row.user_a == current_user.id else row.user_a
+        blocked = (
+            await db.execute(
+                select(Block.id).where(
+                    or_(
+                        and_(Block.from_user_id == current_user.id, Block.to_user_id == other_id),
+                        and_(Block.from_user_id == other_id, Block.to_user_id == current_user.id),
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+        if blocked:
+            continue
         profile = (await db.execute(select(Profile).where(Profile.user_id == other_id))).scalar_one_or_none()
         if not profile:
             continue
@@ -330,6 +403,7 @@ async def get_match_details(match_id: int, current_user: User = Depends(get_curr
         raise HTTPException(status_code=403, detail="Forbidden")
 
     other_id = row.user_b if row.user_a == current_user.id else row.user_a
+    await _assert_not_blocked(db, current_user.id, other_id)
     profile = await build_profile_out(db, other_id)
     return {"match_id": row.id, "profile": profile}
 
@@ -355,6 +429,7 @@ async def trust_downvote(
 async def _trust_vote(target_user_id: int, current_user: User, db: AsyncSession, value: int):
     if target_user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot vote self")
+    await _assert_not_blocked(db, current_user.id, target_user_id)
 
     is_matched = (
         await db.execute(
@@ -511,6 +586,48 @@ async def list_linked_accounts(
     ]
 
 
+@app.post("/actions/block")
+async def action_block(
+    payload: ActionTarget,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if payload.target_user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot block self")
+
+    existing = (
+        await db.execute(
+            select(Block).where(
+                and_(Block.from_user_id == current_user.id, Block.to_user_id == payload.target_user_id)
+            )
+        )
+    ).scalar_one_or_none()
+    if not existing:
+        db.add(Block(from_user_id=current_user.id, to_user_id=payload.target_user_id))
+        await db.commit()
+    return {"ok": True}
+
+
+@app.post("/actions/report")
+async def action_report(
+    payload: ReportIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if payload.target_user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot report self")
+
+    db.add(
+        Report(
+            reporter_user_id=current_user.id,
+            target_user_id=payload.target_user_id,
+            reason=payload.reason.strip(),
+        )
+    )
+    await db.commit()
+    return {"ok": True}
+
+
 @app.post("/account/refresh-stats")
 async def refresh_stats(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stats = (await db.execute(select(Stats).where(Stats.user_id == current_user.id))).scalar_one_or_none()
@@ -579,6 +696,31 @@ async def leaderboard_me(
     return position
 
 
+@app.get("/reports/me")
+async def my_reports(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (
+        await db.execute(
+            select(Report)
+            .where(Report.reporter_user_id == current_user.id)
+            .order_by(Report.created_at.desc())
+            .limit(20)
+        )
+    ).scalars().all()
+    return [
+        {
+            "report_id": row.id,
+            "target_user_id": row.target_user_id,
+            "reason": row.reason,
+            "status": row.status,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+
 @app.post("/leaderboard/rebuild")
 async def leaderboard_rebuild(
     current_user: User = Depends(get_current_user),
@@ -589,21 +731,102 @@ async def leaderboard_rebuild(
     return {"ok": True, "rebuilt": results}
 
 
+@app.get("/admin/overview")
+async def admin_overview(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    active_cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    total_users = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+    active_users = (
+        await db.execute(select(func.count()).select_from(User).where(User.last_active_at >= active_cutoff))
+    ).scalar_one()
+    profiles_created = (await db.execute(select(func.count()).select_from(Profile))).scalar_one()
+    matches_created = (await db.execute(select(func.count()).select_from(Match))).scalar_one()
+    open_reports = (
+        await db.execute(select(func.count()).select_from(Report).where(Report.status == "open"))
+    ).scalar_one()
+
+    return {
+        "total_users": total_users,
+        "active_users": active_users,
+        "profiles_created": profiles_created,
+        "matches_created": matches_created,
+        "open_reports": open_reports,
+    }
+
+
+@app.get("/admin/reports")
+async def admin_reports(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    rows = (
+        await db.execute(
+            select(Report).order_by(
+                case((Report.status == "open", 0), else_=1),
+                Report.created_at.desc(),
+            )
+        )
+    ).scalars().all()
+    return [
+        {
+            "report_id": row.id,
+            "reporter_user_id": row.reporter_user_id,
+            "target_user_id": row.target_user_id,
+            "reason": row.reason,
+            "status": row.status,
+            "created_at": row.created_at,
+            "resolved_at": row.resolved_at,
+            "resolved_by_tg_id": row.resolved_by_tg_id,
+        }
+        for row in rows
+    ]
+
+
+@app.post("/admin/reports/{report_id}/resolve")
+async def admin_resolve_report(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    report = (await db.execute(select(Report).where(Report.id == report_id))).scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    report.status = "resolved"
+    report.resolved_at = datetime.now(timezone.utc)
+    report.resolved_by_tg_id = current_user.tg_id
+    await db.commit()
+    return {"ok": True}
+
+
 # ===== Premium =====
 
 @app.get("/premium/status")
 async def premium_status(current_user: User = Depends(get_current_user)):
-    from datetime import datetime, timezone
     is_active = current_user.is_premium
     days_left = 0
-    if current_user.premium_until:
-        delta = current_user.premium_until - datetime.now(timezone.utc)
+    premium_until = _as_utc(current_user.premium_until)
+    if premium_until:
+        delta = premium_until - datetime.now(timezone.utc)
         days_left = max(0, delta.days)
         if days_left == 0:
             is_active = False
     return {
         "is_premium": is_active,
-        "premium_until": current_user.premium_until.isoformat() if current_user.premium_until else None,
+        "premium_until": premium_until.isoformat() if premium_until else None,
         "days_left": days_left,
         "features": {
             "daily_likes": "unlimited" if is_active else 100,

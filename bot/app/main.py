@@ -4,7 +4,10 @@ import os
 
 import httpx
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import BotCommand
 from aiogram.fsm.storage.memory import MemoryStorage
+from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.handlers import router
@@ -64,12 +67,42 @@ async def main() -> None:
             "Set BACKEND_URL correctly or disable strict check."
         )
 
+    redis_client: Redis | None = None
+    if settings.redis_url.strip():
+        try:
+            redis_client = Redis.from_url(settings.redis_url, decode_responses=False)
+            await redis_client.ping()
+            storage = RedisStorage(redis=redis_client)
+            logging.info("Using Redis FSM storage: %s", settings.redis_url)
+        except Exception as exc:
+            logging.warning("Redis storage is unavailable: %s", exc)
+            storage = MemoryStorage()
+            redis_client = None
+    else:
+        storage = MemoryStorage()
+        logging.warning("REDIS_URL is not set. Falling back to in-memory FSM storage.")
+
     bot = Bot(token=settings.bot_token)
-    dp = Dispatcher(storage=MemoryStorage())
+    dp = Dispatcher(storage=storage)
     dp.include_router(router)
+
+    commands = [
+        BotCommand(command="start", description="Запустить бота"),
+        BotCommand(command="menu", description="Открыть главное меню"),
+        BotCommand(command="profile", description="Моя анкета"),
+        BotCommand(command="edit", description="Редактировать анкету"),
+        BotCommand(command="find", description="Искать тиммейтов"),
+        BotCommand(command="matches", description="Мои мэтчи"),
+        BotCommand(command="settings", description="Настройки"),
+        BotCommand(command="help", description="Помощь"),
+        BotCommand(command="support", description="Поддержка"),
+        BotCommand(command="reset", description="Сбросить анкету"),
+        BotCommand(command="app", description="Открыть Elyx App"),
+    ]
 
     # Clear stale webhook when running polling mode (common reason for silent non-response).
     await bot.delete_webhook(drop_pending_updates=settings.drop_pending_updates)
+    await bot.set_my_commands(commands)
     me = await bot.get_me()
     logging.info("Bot connected as @%s (%s)", me.username, me.id)
     logging.info("Polling started")
@@ -80,7 +113,11 @@ async def main() -> None:
             "until BACKEND_URL becomes reachable."
         )
 
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        if redis_client is not None:
+            await redis_client.aclose()
 
 
 if __name__ == "__main__":

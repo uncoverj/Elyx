@@ -31,6 +31,12 @@ BATCH_DELAY_SECONDS = 2.0  # delay between users to respect API rate limits
 MAX_RETRIES = 2
 
 
+def _naive_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+
+
 async def _refresh_single_user(db: AsyncSession, user_id: int) -> bool:
     """Refresh a single user's stats. Returns True on success."""
     from app.services.stats_refresh import refresh_user_stats
@@ -86,8 +92,9 @@ async def run_background_refresh_cycle(db_factory) -> dict:
     errors = 0
 
     for user, stats in users_with_profiles:
-        last_update = stats.updated_at if stats else None
-        is_premium = user.is_premium and user.premium_until and user.premium_until > now
+        last_update = _naive_utc(stats.updated_at) if stats else None
+        premium_until = _naive_utc(user.premium_until)
+        is_premium = user.is_premium and premium_until and premium_until > now
 
         # Determine if refresh is needed
         if last_update:
@@ -137,13 +144,15 @@ def can_manual_refresh(user: User, stats: Stats | None) -> tuple[bool, int]:
     Returns (allowed, seconds_until_allowed).
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    is_premium = user.is_premium and user.premium_until and user.premium_until > now
+    premium_until = _naive_utc(user.premium_until)
+    is_premium = user.is_premium and premium_until and premium_until > now
 
-    if not stats or not stats.updated_at:
+    updated_at = _naive_utc(stats.updated_at) if stats else None
+    if not updated_at:
         return True, 0
 
     cooldown = MANUAL_REFRESH_COOLDOWN_PREMIUM if is_premium else MANUAL_REFRESH_COOLDOWN_FREE
-    next_allowed = stats.updated_at + cooldown
+    next_allowed = updated_at + cooldown
     if now >= next_allowed:
         return True, 0
 

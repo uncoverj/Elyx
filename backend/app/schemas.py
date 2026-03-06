@@ -61,6 +61,10 @@ class LetterIn(ActionTarget):
     text: str = Field(min_length=1, max_length=500)
 
 
+class ReportIn(ActionTarget):
+    reason: str = Field(min_length=5, max_length=500)
+
+
 class MatchOut(BaseModel):
     match_id: int
     user_id: int

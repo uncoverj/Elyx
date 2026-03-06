@@ -14,11 +14,26 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Like, Match, Profile, Skip, Stats, User
+from app.models import Block, Like, Match, Profile, Skip, Stats, User
 from app.services.trust import compute_weighted_trust
 
 # Max unified_score gap for rank_similarity to be non-zero
 MAX_SCORE_GAP = 4000
+GENERIC_RANK_ORDER = {
+    "iron": 1,
+    "bronze": 2,
+    "silver": 3,
+    "gold": 4,
+    "platinum": 5,
+    "emerald": 6,
+    "diamond": 7,
+    "ascendant": 8,
+    "master": 8,
+    "immortal": 9,
+    "grandmaster": 9,
+    "radiant": 10,
+    "challenger": 10,
+}
 
 
 def rank_similarity_unified(my_score: int, their_score: int) -> float:
@@ -29,6 +44,22 @@ def rank_similarity_unified(my_score: int, their_score: int) -> float:
     if gap >= MAX_SCORE_GAP:
         return 0.0
     return max(0.0, 1.0 - gap / MAX_SCORE_GAP)
+
+
+def rank_similarity(my_rank: str | None, their_rank: str | None) -> float:
+    """Compatibility helper for tests and text-based rank comparisons."""
+    if not my_rank or not their_rank:
+        return 0.25
+
+    a = GENERIC_RANK_ORDER.get(my_rank.lower().strip())
+    b = GENERIC_RANK_ORDER.get(their_rank.lower().strip())
+    if a is None or b is None:
+        return 0.25
+
+    gap = abs(a - b)
+    if gap >= 6:
+        return 0.0
+    return max(0.0, 1.0 - gap / 6)
 
 
 def tag_overlap(tags_a: list[str], tags_b: list[str]) -> float:
@@ -85,6 +116,8 @@ async def next_candidate(db: AsyncSession, user_id: int) -> Profile | None:
         .union(select(Skip.to_user_id.label("uid")).where(Skip.from_user_id == user_id))
         .union(select(Match.user_a.label("uid")).where(Match.user_b == user_id))
         .union(select(Match.user_b.label("uid")).where(Match.user_a == user_id))
+        .union(select(Block.to_user_id.label("uid")).where(Block.from_user_id == user_id))
+        .union(select(Block.from_user_id.label("uid")).where(Block.to_user_id == user_id))
     ).subquery()
 
     base_query = (
@@ -129,4 +162,3 @@ async def next_candidate(db: AsyncSession, user_id: int) -> Profile | None:
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored[0][1]
-

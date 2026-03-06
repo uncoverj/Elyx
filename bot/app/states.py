@@ -23,10 +23,12 @@ class BrowsingState(StatesGroup):
     active = State()
     letter_text = State()
     reacting = State()         # reacting to incoming like/letter
+    report_reason = State()
 
 
 class MatchesState(StatesGroup):
     viewing = State()
+    first_move_custom = State()
 
 
 class SettingsState(StatesGroup):

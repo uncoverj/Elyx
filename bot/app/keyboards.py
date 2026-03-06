@@ -11,15 +11,20 @@ from aiogram.types import (
 from app.config import get_settings
 
 # ── Main Menu ──────────────────────────────────────────────
-def main_menu_kb() -> ReplyKeyboardMarkup:
+def main_menu_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
     """Main menu with Web App button."""
     cfg = get_settings()
+    keyboard = [
+        [KeyboardButton(text="🔍 Поиск"), KeyboardButton(text="👤 Мой профиль")],
+        [KeyboardButton(text="💞 Мэтчи"), KeyboardButton(text="🏆 Лидерборд")],
+        [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="⭐ Premium")],
+        [KeyboardButton(text="ℹ️ Помощь"), KeyboardButton(text="🆘 Поддержка")],
+        [KeyboardButton(text="📊 Elyx App", web_app=WebAppInfo(url=cfg.webapp_url))],
+    ]
+    if is_admin:
+        keyboard.append([KeyboardButton(text="🛡 Админ-панель")])
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🔍 Поиск"), KeyboardButton(text="👤 Мой профиль")],
-            [KeyboardButton(text="💞 Мэтчи"), KeyboardButton(text="⚙️ Настройки")],
-            [KeyboardButton(text="📊 Elyx App", web_app=WebAppInfo(url=cfg.webapp_url))],
-        ],
+        keyboard=keyboard,
         resize_keyboard=True,
     )
 
@@ -52,8 +57,10 @@ GAME_KB = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Valorant"), KeyboardButton(text="CS2")],
         [KeyboardButton(text="Dota 2"), KeyboardButton(text="League of Legends")],
-        [KeyboardButton(text="Apex Legends"), KeyboardButton(text="Overwatch 2")],
-        [KeyboardButton(text="Fortnite"), KeyboardButton(text="Other")],
+        [KeyboardButton(text="Fortnite"), KeyboardButton(text="Apex Legends")],
+        [KeyboardButton(text="PUBG"), KeyboardButton(text="Call of Duty / Warzone")],
+        [KeyboardButton(text="Rainbow Six Siege"), KeyboardButton(text="Overwatch 2")],
+        [KeyboardButton(text="Other")],
     ],
     resize_keyboard=True,
 )
@@ -68,6 +75,7 @@ SEARCH_KB = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="❤️ Лайк"), KeyboardButton(text="👎 Скип")],
         [KeyboardButton(text="✉️ Письмо"), KeyboardButton(text="⛔ Стоп")],
+        [KeyboardButton(text="🚫 Блок"), KeyboardButton(text="⚠️ Репорт")],
     ],
     resize_keyboard=True,
 )
@@ -86,7 +94,8 @@ PROFILE_KB = ReplyKeyboardMarkup(
 SETTINGS_KB = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="⭐ Premium"), KeyboardButton(text="🆘 Поддержка")],
-        [KeyboardButton(text="🎮 Данные аккаунта"), KeyboardButton(text="🏠 Главное меню")],
+        [KeyboardButton(text="🎮 Данные аккаунта"), KeyboardButton(text="ℹ️ Помощь")],
+        [KeyboardButton(text="🏠 Главное меню")],
     ],
     resize_keyboard=True,
 )
