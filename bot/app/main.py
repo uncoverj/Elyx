@@ -4,9 +4,10 @@ import os
 
 import httpx
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.redis import RedisEventIsolation
 from redis.asyncio import Redis
 
 from app.config import get_settings
@@ -68,22 +69,29 @@ async def main() -> None:
         )
 
     redis_client: Redis | None = None
+    events_isolation = None
     if settings.redis_url.strip():
         try:
             redis_client = Redis.from_url(settings.redis_url, decode_responses=False)
             await redis_client.ping()
             storage = RedisStorage(redis=redis_client)
+            events_isolation = RedisEventIsolation(redis=redis_client)
             logging.info("Using Redis FSM storage: %s", settings.redis_url)
+            logging.info("Redis event isolation enabled")
         except Exception as exc:
             logging.warning("Redis storage is unavailable: %s", exc)
             storage = MemoryStorage()
+            events_isolation = SimpleEventIsolation()
             redis_client = None
+            logging.warning("Falling back to in-process event isolation")
     else:
         storage = MemoryStorage()
+        events_isolation = SimpleEventIsolation()
         logging.warning("REDIS_URL is not set. Falling back to in-memory FSM storage.")
+        logging.warning("Using in-process event isolation")
 
     bot = Bot(token=settings.bot_token)
-    dp = Dispatcher(storage=storage)
+    dp = Dispatcher(storage=storage, events_isolation=events_isolation)
     dp.include_router(router)
 
     commands = [
