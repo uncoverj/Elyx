@@ -1,9 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const LOCAL_BACKEND_URL = 'http://localhost:8000'
+const RAILWAY_BACKEND_URL = 'https://elyx-production.up.railway.app'
+
 const BACKEND_URL =
     process.env.BACKEND_URL ||
     process.env.NEXT_PUBLIC_BACKEND_URL ||
-    'http://localhost:8000'
+    (process.env.VERCEL ? RAILWAY_BACKEND_URL : LOCAL_BACKEND_URL)
+
+const NORMALIZED_BACKEND_URL = BACKEND_URL.replace(/\/+$/, '')
+
+async function parseBackendResponse(response: Response): Promise<unknown> {
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+        return response.json()
+    }
+    const text = await response.text()
+    if (!text) return {}
+    try {
+        return JSON.parse(text)
+    } catch {
+        return { detail: text }
+    }
+}
 
 function getTgHeaders(request: NextRequest): Record<string, string> {
     const headers: Record<string, string> = {}
@@ -20,14 +39,14 @@ export async function GET(
 ) {
     const path = params.path.join('/')
     const searchParams = request.nextUrl.searchParams.toString()
-    const url = `${BACKEND_URL}/${path}${searchParams ? `?${searchParams}` : ''}`
+    const url = `${NORMALIZED_BACKEND_URL}/${path}${searchParams ? `?${searchParams}` : ''}`
 
     try {
         const response = await fetch(url, {
             headers: { 'Content-Type': 'application/json', ...getTgHeaders(request) },
             cache: 'no-store',
         })
-        const data = await response.json()
+        const data = await parseBackendResponse(response)
         return NextResponse.json(data, { status: response.status })
     } catch (error) {
         console.error('API proxy GET error:', error)
@@ -40,7 +59,7 @@ export async function POST(
     { params }: { params: { path: string[] } }
 ) {
     const path = params.path.join('/')
-    const url = `${BACKEND_URL}/${path}`
+    const url = `${NORMALIZED_BACKEND_URL}/${path}`
     const body = await request.json().catch(() => ({}))
 
     try {
@@ -49,7 +68,7 @@ export async function POST(
             headers: { 'Content-Type': 'application/json', ...getTgHeaders(request) },
             body: JSON.stringify(body),
         })
-        const data = await response.json()
+        const data = await parseBackendResponse(response)
         return NextResponse.json(data, { status: response.status })
     } catch (error) {
         console.error('API proxy POST error:', error)
@@ -62,7 +81,7 @@ export async function PUT(
     { params }: { params: { path: string[] } }
 ) {
     const path = params.path.join('/')
-    const url = `${BACKEND_URL}/${path}`
+    const url = `${NORMALIZED_BACKEND_URL}/${path}`
     const body = await request.json().catch(() => ({}))
 
     try {
@@ -71,7 +90,7 @@ export async function PUT(
             headers: { 'Content-Type': 'application/json', ...getTgHeaders(request) },
             body: JSON.stringify(body),
         })
-        const data = await response.json()
+        const data = await parseBackendResponse(response)
         return NextResponse.json(data, { status: response.status })
     } catch (error) {
         console.error('API proxy PUT error:', error)
@@ -84,14 +103,14 @@ export async function DELETE(
     { params }: { params: { path: string[] } }
 ) {
     const path = params.path.join('/')
-    const url = `${BACKEND_URL}/${path}`
+    const url = `${NORMALIZED_BACKEND_URL}/${path}`
 
     try {
         const response = await fetch(url, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json', ...getTgHeaders(request) },
         })
-        const data = await response.json().catch(() => ({}))
+        const data = await parseBackendResponse(response)
         return NextResponse.json(data, { status: response.status })
     } catch (error) {
         console.error('API proxy DELETE error:', error)

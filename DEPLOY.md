@@ -48,7 +48,28 @@ Set these env vars in Vercel Project -> Settings -> Environment Variables:
 Notes:
 
 - Do not add trailing slash.
+- Remove old `NEXT_PUBLIC_API_URL` if it points to `loca.lt` or any outdated URL.
 - Redeploy after changing env vars.
+
+### Vercel build settings (important)
+
+- `Root Directory`: `webapp`
+- `Framework Preset`: `Next.js`
+- `Build Command`: `npm run build`
+- `Install Command`: `npm install`
+- `Output Directory`: `.next`
+- `Node.js Version`: `20.x` (LTS)
+
+### Production overrides fix
+
+If you see:
+`Configuration Settings in the current Production deployment differ from your current Project Settings`
+
+do this in Vercel:
+
+1. Open the current Production deployment.
+2. Open `...` menu -> `Reset Production Overrides` (or remove all overrides manually).
+3. Redeploy Production with `Use existing Build Cache` disabled.
 
 ### Verify frontend proxy
 

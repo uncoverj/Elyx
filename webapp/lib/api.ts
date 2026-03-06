@@ -1,7 +1,14 @@
+const LOCAL_BACKEND_URL = 'http://localhost:8000'
+const RAILWAY_BACKEND_URL = 'https://elyx-production.up.railway.app'
+
 const API_BASE =
   typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_API_URL || '/api')
-    : (process.env.BACKEND_URL || 'http://localhost:8000')
+    ? '/api'
+    : (
+        process.env.BACKEND_URL ||
+        process.env.NEXT_PUBLIC_BACKEND_URL ||
+        (process.env.VERCEL ? RAILWAY_BACKEND_URL : LOCAL_BACKEND_URL)
+      ).replace(/\/+$/, '')
 
 function getTgHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {}
