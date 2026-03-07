@@ -95,6 +95,7 @@ PROVIDER_PROMPTS = {
 
 # Store first-move options in memory for callback handling
 _first_move_cache: dict[int, dict] = {}
+DRAFT_DATA_KEY = "registration_draft"
 
 
 def _is_admin(tg_id: int) -> bool:
@@ -130,6 +131,56 @@ def _backend_error_text(exc: httpx.HTTPStatusError) -> str:
 
 async def _answer_backend_error(message: Message, exc: httpx.HTTPStatusError, reply_markup=None) -> None:
     await message.answer(f"⚠️ {_backend_error_text(exc)}", reply_markup=reply_markup)
+
+
+async def _get_registration_draft(state: FSMContext, tg_id: int) -> dict:
+    data = await state.get_data()
+    draft = data.get(DRAFT_DATA_KEY)
+    if isinstance(draft, dict) and draft:
+        registration_drafts[tg_id] = draft
+        return draft
+
+    mirror = dict(registration_drafts.get(tg_id, {}))
+    if mirror:
+        await state.update_data(**{DRAFT_DATA_KEY: mirror})
+    return mirror
+
+
+async def _save_registration_draft(state: FSMContext, tg_id: int, draft: dict) -> dict:
+    registration_drafts[tg_id] = draft
+    await state.update_data(**{DRAFT_DATA_KEY: draft})
+    return draft
+
+
+async def _patch_registration_draft(state: FSMContext, tg_id: int, **changes) -> dict:
+    draft = await _get_registration_draft(state, tg_id)
+    draft.update(changes)
+    return await _save_registration_draft(state, tg_id, draft)
+
+
+async def _clear_registration_draft(state: FSMContext, tg_id: int) -> None:
+    registration_drafts.pop(tg_id, None)
+    data = await state.get_data()
+    if DRAFT_DATA_KEY in data:
+        data.pop(DRAFT_DATA_KEY, None)
+        await state.set_data(data)
+
+
+async def _restart_registration(message: Message, state: FSMContext, tg_id: int) -> None:
+    await _clear_registration_draft(state, tg_id)
+    await state.set_state(RegistrationState.nickname)
+    await message.answer(
+        "Сессия регистрации сбросилась. Давай начнём заново.\n\nШаг 1/11 — Как тебя зовут? Введи никнейм:",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+async def _require_registration_draft(message: Message, state: FSMContext, tg_id: int) -> dict | None:
+    draft = await _get_registration_draft(state, tg_id)
+    if draft:
+        return draft
+    await _restart_registration(message, state, tg_id)
+    return None
 
 
 # ── Profile card builder ─────────────────────────────────
@@ -311,6 +362,7 @@ def _summary(draft: dict) -> str:
 @router.message(Command("menu"))
 async def cmd_menu(message: Message, state: FSMContext) -> None:
     await state.clear()
+    await _clear_registration_draft(state, message.from_user.id)
     await message.answer("Главное меню", reply_markup=_main_menu_markup(message.from_user.id))
 
 
@@ -379,6 +431,7 @@ async def cmd_reset(message: Message, state: FSMContext) -> None:
     pending_reactions.pop(tg_id, None)
     letters_target.pop(tg_id, None)
     custom_first_move_target.pop(tg_id, None)
+    await _clear_registration_draft(state, tg_id)
     await state.set_state(RegistrationState.nickname)
     await message.answer("Анкета сброшена.\n\nШаг 1/11 — введи никнейм:", reply_markup=ReplyKeyboardRemove())
 
@@ -452,6 +505,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
     tg_id = message.from_user.id
     uname = message.from_user.username
+    await _clear_registration_draft(state, tg_id)
     try:
         await backend.get("/profiles/me", tg_id, username=uname)
         await message.answer("С возвращением! 💘", reply_markup=_main_menu_markup(message.from_user.id))
@@ -480,7 +534,7 @@ async def reg_nickname(message: Message, state: FSMContext) -> None:
     if len(nick) < 2 or len(nick) > 64:
         await message.answer("❌ Никнейм от 2 до 64 символов. Попробуй ещё:")
         return
-    registration_drafts[message.from_user.id]["nickname"] = nick
+    await _patch_registration_draft(state, message.from_user.id, nickname=nick)
     await state.set_state(RegistrationState.gender)
     await message.answer("Шаг 2/11 — Укажи пол:", reply_markup=GENDER_KB)
 
@@ -496,7 +550,7 @@ async def reg_gender(message: Message, state: FSMContext) -> None:
     if not picked:
         await message.answer("Выбери пол кнопкой ⬇️")
         return
-    registration_drafts[message.from_user.id]["gender"] = picked
+    await _patch_registration_draft(state, message.from_user.id, gender=picked)
     await state.set_state(RegistrationState.age)
     await message.answer("Шаг 3/11 — Сколько тебе лет? (14–60)", reply_markup=ReplyKeyboardRemove())
 
@@ -507,7 +561,7 @@ async def reg_age(message: Message, state: FSMContext) -> None:
     if not txt.isdigit() or not (14 <= int(txt) <= 60):
         await message.answer("❌ Возраст должен быть числом от 14 до 60")
         return
-    registration_drafts[message.from_user.id]["age"] = int(txt)
+    await _patch_registration_draft(state, message.from_user.id, age=int(txt))
     await state.set_state(RegistrationState.game)
     await message.answer("Шаг 4/11 — Выбери основную игру:", reply_markup=GAME_KB)
 
@@ -522,12 +576,14 @@ async def reg_game(message: Message, state: FSMContext) -> None:
         return
 
     tg_id = message.from_user.id
-    registration_drafts[tg_id]["game_id"] = picked["id"]
-    registration_drafts[tg_id]["game_name"] = picked["name"]
-
-    # Auto-detect provider for account linking later
     provider = GAME_PROVIDER.get(picked["name"].lower())
-    registration_drafts[tg_id]["account_provider"] = provider
+    await _patch_registration_draft(
+        state,
+        tg_id,
+        game_id=picked["id"],
+        game_name=picked["name"],
+        account_provider=provider,
+    )
 
     await state.set_state(RegistrationState.roles)
     await message.answer(f"Шаг 5/11 — {ROLE_HINT}", reply_markup=ReplyKeyboardRemove())
@@ -536,7 +592,7 @@ async def reg_game(message: Message, state: FSMContext) -> None:
 @router.message(RegistrationState.roles)
 async def reg_roles(message: Message, state: FSMContext) -> None:
     roles = [x.strip() for x in (message.text or "").split(",") if x.strip()]
-    registration_drafts[message.from_user.id]["roles"] = roles[:8]
+    await _patch_registration_draft(state, message.from_user.id, roles=roles[:8])
     await state.set_state(RegistrationState.tags)
     await message.answer(f"Шаг 6/11 — {TAG_HINT}")
 
@@ -544,9 +600,7 @@ async def reg_roles(message: Message, state: FSMContext) -> None:
 @router.message(RegistrationState.tags)
 async def reg_tags(message: Message, state: FSMContext) -> None:
     tags = [x.strip().lower() for x in (message.text or "").split(",") if x.strip()]
-    registration_drafts[message.from_user.id]["tags"] = tags[:12]
-    # Initialize green_flags selection
-    registration_drafts[message.from_user.id]["green_flags"] = []
+    await _patch_registration_draft(state, message.from_user.id, tags=tags[:12], green_flags=[])
     await state.set_state(RegistrationState.green_flags)
     await message.answer(
         f"Шаг 7/11 — {GREEN_FLAGS_HINT}",
@@ -576,7 +630,10 @@ async def reg_green_flags_cb(callback: CallbackQuery, state: FSMContext) -> None
         await callback.answer()
         return
 
-    draft = registration_drafts[tg_id]
+    draft = await _require_registration_draft(callback.message, state, tg_id)
+    if not draft:
+        await callback.answer()
+        return
     selected = draft.get("green_flags", [])
 
     if data in selected:
@@ -588,6 +645,7 @@ async def reg_green_flags_cb(callback: CallbackQuery, state: FSMContext) -> None
         return
 
     draft["green_flags"] = selected
+    await _save_registration_draft(state, tg_id, draft)
     await callback.message.edit_reply_markup(reply_markup=green_flags_kb(selected))
     await callback.answer(f"Выбрано: {len(selected)}/3")
 
@@ -603,10 +661,16 @@ async def reg_dealbreaker_cb(callback: CallbackQuery, state: FSMContext) -> None
     tg_id = callback.from_user.id
     data = callback.data[3:]  # remove "db:" prefix
 
+    draft = await _require_registration_draft(callback.message, state, tg_id)
+    if not draft:
+        await callback.answer()
+        return
+
     if data == "skip":
-        registration_drafts[tg_id]["dealbreaker"] = None
+        draft["dealbreaker"] = None
     else:
-        registration_drafts[tg_id]["dealbreaker"] = data
+        draft["dealbreaker"] = data
+    await _save_registration_draft(state, tg_id, draft)
 
     await state.set_state(RegistrationState.bio)
     await callback.message.answer(f"Шаг 9/11 — {BIO_HINT}")
@@ -619,7 +683,7 @@ async def reg_bio(message: Message, state: FSMContext) -> None:
     if len(txt) < 10 or len(txt) > 400:
         await message.answer("❌ Описание должно быть от 10 до 400 символов")
         return
-    registration_drafts[message.from_user.id]["bio"] = txt
+    await _patch_registration_draft(state, message.from_user.id, bio=txt)
     await state.set_state(RegistrationState.media)
     await message.answer(f"Шаг 10/11 — {PHOTO_HINT}")
 
@@ -627,7 +691,9 @@ async def reg_bio(message: Message, state: FSMContext) -> None:
 @router.message(RegistrationState.media)
 async def reg_media(message: Message, state: FSMContext) -> None:
     tg_id = message.from_user.id
-    draft = registration_drafts[tg_id]
+    draft = await _require_registration_draft(message, state, tg_id)
+    if not draft:
+        return
 
     if message.photo:
         draft["media_type"] = "photo"
@@ -641,6 +707,7 @@ async def reg_media(message: Message, state: FSMContext) -> None:
 
     # Smart account linking — auto-detect from game
     provider = draft.get("account_provider")
+    await _save_registration_draft(state, tg_id, draft)
     if provider:
         prompt = PROVIDER_PROMPTS.get(provider, "Введи ID аккаунта:")
         await state.set_state(RegistrationState.account_ref)
@@ -658,7 +725,9 @@ async def reg_media(message: Message, state: FSMContext) -> None:
 async def reg_account_ref(message: Message, state: FSMContext) -> None:
     tg_id = message.from_user.id
     val = (message.text or "").strip()
-    draft = registration_drafts[tg_id]
+    draft = await _require_registration_draft(message, state, tg_id)
+    if not draft:
+        return
     provider = draft.get("account_provider")
 
     # Format validation
@@ -676,6 +745,7 @@ async def reg_account_ref(message: Message, state: FSMContext) -> None:
         return
 
     draft["account_ref"] = val
+    await _save_registration_draft(state, tg_id, draft)
     await state.set_state(RegistrationState.confirm)
     await message.answer(_summary(draft), reply_markup=CONFIRM_KB)
 
@@ -684,7 +754,9 @@ async def reg_account_ref(message: Message, state: FSMContext) -> None:
 async def reg_save(message: Message, state: FSMContext) -> None:
     tg_id = message.from_user.id
     uname = message.from_user.username
-    draft = registration_drafts.get(tg_id, {})
+    draft = await _require_registration_draft(message, state, tg_id)
+    if not draft:
+        return
 
     payload = {
         "nickname": draft.get("nickname", ""),
@@ -734,13 +806,14 @@ async def reg_save(message: Message, state: FSMContext) -> None:
         except Exception:
             await message.answer("📊 Статистика подтянется автоматически.")
 
-    registration_drafts.pop(tg_id, None)
+    await _clear_registration_draft(state, tg_id)
     await state.clear()
     await message.answer("Анкета сохранена! 🎉\nТеперь можешь искать людей 💘", reply_markup=_main_menu_markup(message.from_user.id))
 
 
 @router.message(RegistrationState.confirm, F.text == "✏️ Изменить")
 async def reg_edit(message: Message, state: FSMContext) -> None:
+    await _clear_registration_draft(state, message.from_user.id)
     await state.set_state(RegistrationState.nickname)
     await message.answer("Ок, начнём заново! Введи никнейм:", reply_markup=ReplyKeyboardRemove())
 
