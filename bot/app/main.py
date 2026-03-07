@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import logging
 import os
 
@@ -111,6 +111,7 @@ async def main() -> None:
         BotCommand(command="edit", description="Редактировать анкету"),
         BotCommand(command="find", description="Искать тиммейтов"),
         BotCommand(command="matches", description="Мои мэтчи"),
+        BotCommand(command="stats", description="Подключения и стата"),
         BotCommand(command="settings", description="Настройки"),
         BotCommand(command="help", description="Помощь"),
         BotCommand(command="support", description="Поддержка"),

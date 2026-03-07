@@ -39,6 +39,7 @@ async def build_profile_out(db: AsyncSession, user_id: int) -> ProfileOut | None
             source=stats.source,
             source_status=stats.source_status,
             verified=stats.verified,
+            updated_at=stats.updated_at,
         )
 
     return ProfileOut(

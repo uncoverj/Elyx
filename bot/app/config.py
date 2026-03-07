@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     drop_pending_updates: bool = True
 
     model_config = SettingsConfigDict(
-        env_file=(BOT_ENV_FILE, ROOT_ENV_FILE),
+        env_file=(ROOT_ENV_FILE, BOT_ENV_FILE),
         extra="ignore",
     )
 

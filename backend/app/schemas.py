@@ -27,6 +27,7 @@ class StatsIn(BaseModel):
     source: str = "manual"
     source_status: str = "ok"
     verified: bool = False
+    updated_at: datetime | None = None
 
 
 class ProfileOut(BaseModel):

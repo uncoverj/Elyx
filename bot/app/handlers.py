@@ -1,4 +1,4 @@
-"""
+﻿"""
 Bot handlers — full dating UX with green flags, dealbreaker, mood, first move.
 
 All imports and flows: registration (11 steps), search with mood, swipe/like/letter,
@@ -74,23 +74,22 @@ router = Router()
 GAME_PROVIDER = {
     "valorant": "riot",
     "cs2": "faceit",
-    "dota 2": "steam",
-    "league of legends": "riot",
-    "apex legends": "steam",
-    "pubg": None,
-    "call of duty / warzone": None,
-    "rainbow six siege": None,
-    "overwatch 2": "blizzard",
-    "fortnite": "epic",
-    "other": None,
+}
+
+GAME_ALIASES = {
+    "valorant": "valorant",
+    "cs2": "cs2",
+    "cs2 / faceit": "cs2",
+}
+
+PROVIDER_TITLES = {
+    "riot": "Riot ID",
+    "faceit": "FACEIT",
 }
 
 PROVIDER_PROMPTS = {
-    "riot": "Введи свой Riot ID (формат: Nickname#TAG):",
-    "faceit": "Введи свой Faceit никнейм (как на faceit.com):",
-    "steam": "Введи свой Steam ID (17-значный steam64 или vanity URL):",
-    "blizzard": "Введи свой BattleTag (формат: Name#1234):",
-    "epic": "Введи свой Epic Games ник:",
+    "riot": "Введи Riot ID в формате Nickname#TAG:",
+    "faceit": "Введи ник FACEIT, как на faceit.com:",
 }
 
 # Store first-move options in memory for callback handling
@@ -104,6 +103,109 @@ def _is_admin(tg_id: int) -> bool:
 
 def _main_menu_markup(tg_id: int):
     return main_menu_kb(is_admin=_is_admin(tg_id))
+
+
+def _provider_title(provider: str | None) -> str:
+    return PROVIDER_TITLES.get((provider or "").lower(), (provider or "аккаунт").upper())
+
+
+def _format_decimal(value: float | None, precision: int = 2, suffix: str = "") -> str:
+    if value is None:
+        return "—"
+    return f"{value:.{precision}f}{suffix}"
+
+
+def _format_account_ref(account_ref: str | None) -> str:
+    return account_ref or "не подключен"
+
+
+def _build_stats_lines(stats: dict | None, game_name: str | None) -> list[str]:
+    if not stats:
+        return [
+            f"📊 Стата по {game_name or 'игре'} пока не загружена.",
+            "Подключи нужный аккаунт и нажми «Обновить статистику».",
+        ]
+
+    rank = stats.get("rank_name") or "—"
+    rank_points = stats.get("rank_points")
+    score = stats.get("unified_score") or 0
+    kd = _format_decimal(stats.get("kd"), 2)
+    winrate = _format_decimal(stats.get("winrate"), 1, "%")
+    source = (stats.get("source") or "manual").upper()
+    verified = "да" if stats.get("verified") else "нет"
+    updated_at = stats.get("updated_at")
+    updated_line = ""
+    if updated_at:
+        try:
+            dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00")).astimezone()
+            updated_line = f"🕒 Обновлено: {dt.strftime('%d.%m %H:%M')}"
+        except Exception:
+            updated_line = f"🕒 Обновлено: {updated_at}"
+
+    rank_line = f"🏅 Ранг: {rank}"
+    if rank_points:
+        rank_line += f" ({rank_points})"
+
+    lines = [
+        f"🎮 Игра: {game_name or 'не выбрана'}",
+        rank_line,
+        f"⚔️ K/D: {kd}",
+        f"📈 Winrate: {winrate}",
+        f"🏆 Elyx Score: {score}",
+        f"🔎 Источник: {source} | Verified: {verified}",
+    ]
+    if updated_line:
+        lines.append(updated_line)
+    return lines
+
+
+def _build_account_dashboard(overview: dict) -> str:
+    profile = overview.get("profile")
+    accounts = overview.get("accounts", [])
+    game_name = profile.get("game_name") if profile else None
+    lines = ["🎮 Подключения и статистика", ""]
+
+    for account in accounts:
+        marker = "👉" if account.get("recommended") else "•"
+        title = account.get("title") or _provider_title(account.get("provider"))
+        status = "подключен" if account.get("connected") else "не подключен"
+        lines.append(f"{marker} {title}: {status} — {_format_account_ref(account.get('account_ref'))}")
+
+    lines.append("")
+    if profile:
+        lines.extend(_build_stats_lines(profile.get("stats"), game_name))
+    else:
+        lines.append("Анкета ещё не создана. Начни с /start.")
+    return "\n".join(lines)
+
+
+def _refresh_result_text(result: dict) -> str:
+    if result.get("ok"):
+        lines = ["✅ Статистика обновлена."]
+        lines.extend(_build_stats_lines(result, result.get("game")))
+        return "\n".join(lines)
+
+    error = result.get("error")
+    label = result.get("label") or _provider_title(result.get("provider"))
+    if error == "no_profile":
+        return "⚠️ Сначала создай анкету через /start."
+    if error == "no_linked_account":
+        return f"⚠️ Сначала привяжи аккаунт: {label}."
+    if error == "no_match_history":
+        return f"⚠️ {result.get('message') or 'Для статистики нужен хотя бы один сыгранный матч.'}"
+    if error == "api_fetch_failed":
+        return "⚠️ Не удалось получить данные из API. Проверь ник и попробуй ещё раз."
+    if error == "unsupported_game":
+        return f"⚠️ Сейчас поддерживается только Valorant и CS2 / FACEIT. Текущая игра: {result.get('game')}"
+    return f"⚠️ {error or 'Не удалось обновить статистику.'}"
+
+
+async def _show_account_dashboard(message: Message, tg_id: int, header: str | None = None) -> None:
+    overview = await backend.get("/account/overview", tg_id)
+    text = _build_account_dashboard(overview)
+    if header:
+        text = f"{header}\n\n{text}"
+    await message.answer(text, reply_markup=ACCOUNT_DATA_KB)
 
 
 def _backend_error_text(exc: httpx.HTTPStatusError) -> str:
@@ -334,28 +436,28 @@ async def _update_profile_partial(tg_id: int, **changes) -> None:
 
 
 def _summary(draft: dict) -> str:
-    """Registration summary before saving."""
-    account_line = "Не указано"
-    prov = draft.get("account_provider")
-    ref = draft.get("account_ref")
-    if prov and ref:
-        account_line = f"{prov}: {ref}"
+    account_line = "Не указан"
+    provider = draft.get("account_provider")
+    account_ref = draft.get("account_ref")
+    if provider and account_ref:
+        account_line = f"{_provider_title(provider)}: {account_ref}"
 
-    gf = ", ".join(draft.get("green_flags", [])) or "—"
-    db = draft.get("dealbreaker") or "—"
+    green_flags = ", ".join(draft.get("green_flags", [])) or "—"
+    dealbreaker = draft.get("dealbreaker") or "—"
 
     return (
         "📋 Проверь анкету:\n\n"
         f"👤 Ник: {draft.get('nickname')}\n"
         f"🧑 Пол: {draft.get('gender')}\n"
         f"🎂 Возраст: {draft.get('age')}\n"
-        f"🎮 Роли: {', '.join(draft.get('roles', [])) or '—'}\n"
+        f"🎮 Игра: {draft.get('game_name')}\n"
+        f"🎯 Роли: {', '.join(draft.get('roles', [])) or '—'}\n"
         f"🏷 Теги: {', '.join(draft.get('tags', [])) or '—'}\n"
-        f"✅ Green: {gf}\n"
-        f"🚫 Дилбрейкер: {db}\n"
+        f"✅ Green flags: {green_flags}\n"
+        f"🚫 Стоп-фактор: {dealbreaker}\n"
         f"✏️ Описание: {draft.get('bio')}\n"
-        f"🎮 Аккаунт: {account_line}\n\n"
-        "Всё верно? Жми «Сохранить» или «Изменить»."
+        f"🔗 Аккаунт: {account_line}\n\n"
+        "Если всё ок, жми «Сохранить»."
     )
 
 
@@ -400,6 +502,11 @@ async def cmd_find(message: Message, state: FSMContext) -> None:
 @router.message(Command("matches"))
 async def cmd_matches(message: Message, state: FSMContext) -> None:
     await matches_open(message, state)
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, state: FSMContext) -> None:
+    await account_data(message, state)
 
 
 @router.message(Command("settings"))
@@ -570,7 +677,8 @@ async def reg_age(message: Message, state: FSMContext) -> None:
 async def reg_game(message: Message, state: FSMContext) -> None:
     games = await backend.get("/games", message.from_user.id)
     by_name = {g["name"].lower(): g for g in games}
-    picked = by_name.get((message.text or "").strip().lower())
+    raw_game = (message.text or "").strip().lower()
+    picked = by_name.get(GAME_ALIASES.get(raw_game, raw_game))
     if not picked:
         await message.answer("Выбери игру кнопкой ⬇️")
         return
@@ -730,18 +838,12 @@ async def reg_account_ref(message: Message, state: FSMContext) -> None:
         return
     provider = draft.get("account_provider")
 
-    # Format validation
     if provider == "riot" and "#" not in val:
-        await message.answer("❌ Riot ID должен содержать #\nПример: Nickname#TAG")
+        await message.answer("❌ Riot ID должен быть в формате Nickname#TAG")
         return
-    if provider == "steam":
-        # Accept 17-digit steam64 or vanity string
-        if val.isdigit() and len(val) != 17:
-            await message.answer("❌ Steam64 ID должен быть 17 цифр.\nИли введи vanity URL (буквы).")
-            return
 
     if len(val) < 2 or len(val) > 128:
-        await message.answer("❌ ID должен быть от 2 до 128 символов")
+        await message.answer("❌ ID должен быть длиной от 2 до 128 символов")
         return
 
     draft["account_ref"] = val
@@ -781,30 +883,9 @@ async def reg_save(message: Message, state: FSMContext) -> None:
         await backend.post(f"/account/link/{prov}", tg_id, {"account_ref": ref})
         try:
             result = await backend.post("/account/refresh-stats", tg_id)
-            if result.get("ok"):
-                rank = result.get("rank") or "—"
-                kd = result.get("kd")
-                wr = result.get("winrate")
-                score = result.get("unified_score", 0)
-                kd_str = f"{kd:.2f}" if kd else "—"
-                wr_str = f"{wr:.1f}%" if wr else "—"
-                await message.answer(
-                    f"✅ Аккаунт подтверждён!\n"
-                    f"🎮 {draft.get('game_name', '')}\n"
-                    f"📊 K/D: {kd_str} | Rank: {rank} | Win%: {wr_str}\n"
-                    f"🏆 Score: {score}"
-                )
-            else:
-                error = result.get("error", "")
-                if error == "no_match_history":
-                    msg = result.get("message", "Сыграй хотя бы одну игру.")
-                    await message.answer(f"⚠️ {msg}")
-                elif error == "api_fetch_failed":
-                    await message.answer("⏳ Проверяем аккаунт… Обычно 10–60 сек. Я напишу, когда будет готово.")
-                else:
-                    await message.answer("📊 Статистика подтянется автоматически.")
+            await message.answer(_refresh_result_text(result))
         except Exception:
-            await message.answer("📊 Статистика подтянется автоматически.")
+            await message.answer("📊 Аккаунт сохранён. Статистику можно обновить позже из меню.")
 
     await _clear_registration_draft(state, tg_id)
     await state.clear()
@@ -1193,9 +1274,8 @@ async def change_bio_prompt(message: Message, state: FSMContext) -> None:
     await message.answer("✏️ Пришли новый текст анкеты (10–400):", reply_markup=ReplyKeyboardRemove())
 
 
-@router.message(F.text == "🎮 Проверить ранг")
+@router.message(F.text.in_(["🎮 Проверить ранг", "📊 Обновить стату"]))
 async def recheck_rank(message: Message) -> None:
-    import httpx
     tg_id = message.from_user.id
     await message.answer("🔄 Обновляю статистику…")
     try:
@@ -1206,33 +1286,7 @@ async def recheck_rank(message: Message) -> None:
             await message.answer(f"⏳ {detail}", reply_markup=PROFILE_KB)
             return
         raise
-
-    if result.get("ok"):
-        rank = result.get("rank") or "—"
-        rp = result.get("rank_points")
-        score = result.get("unified_score", 0)
-        kd = result.get("kd")
-        wr = result.get("winrate")
-        kd_str = f"{kd:.2f}" if kd else "—"
-        wr_str = f"{wr:.1f}%" if wr else "—"
-        rp_str = f" ({rp} RR)" if rp else ""
-        await message.answer(
-            f"✅ Статистика обновлена!\n"
-            f"📊 Rank: {rank}{rp_str}\n"
-            f"K/D: {kd_str} | Win%: {wr_str}\n"
-            f"🏆 Score: {score}",
-            reply_markup=PROFILE_KB,
-        )
-    else:
-        error = result.get("error", "")
-        label = result.get("label", "")
-        msg_map = {
-            "no_profile": "Сначала создай анкету",
-            "no_linked_account": f"Привяжи аккаунт: {label}",
-            "api_fetch_failed": "❌ Не удалось получить данные. Проверь ID и попробуй снова.",
-            "unsupported_game": "Игра пока не поддерживается для аналитики",
-        }
-        await message.answer(f"⚠️ {msg_map.get(error, error)}", reply_markup=PROFILE_KB)
+    await message.answer(_refresh_result_text(result), reply_markup=PROFILE_KB)
 
 
 @router.message(ProfileEditState.bio)
@@ -1339,23 +1393,14 @@ async def support(message: Message) -> None:
     await message.answer(SUPPORT_TEXT, reply_markup=SETTINGS_KB)
 
 
-@router.message(F.text == "🎮 Данные аккаунта")
+@router.message(F.text.in_(["🎮 Данные аккаунта", "🎮 Аккаунты", "📊 Стата"]))
 async def account_data(message: Message, state: FSMContext) -> None:
     await state.set_state(SettingsState.menu)
     tg_id = message.from_user.id
-    summary = []
     try:
-        accounts = await backend.get("/account/accounts", tg_id)
-        for account in accounts:
-            icon = "✅" if account.get("connected") else "○"
-            account_ref = account.get("account_ref") or "не подключен"
-            summary.append(f"- {account['provider']}: {icon} {account_ref}")
+        await _show_account_dashboard(message, tg_id)
     except httpx.HTTPStatusError as exc:
         await _answer_backend_error(message, exc, reply_markup=ACCOUNT_DATA_KB)
-        return
-
-    text = "\U0001f3ae \u0418\u0433\u0440\u043e\u0432\u044b\u0435 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u044b\n\n" + "\n".join(summary) if summary else "\U0001f3ae \u0418\u0433\u0440\u043e\u0432\u044b\u0435 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u044b \u043f\u043e\u043a\u0430 \u043d\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u044b."
-    await message.answer(text, reply_markup=ACCOUNT_DATA_KB)
 
 @router.message(F.text == "Riot ID")
 async def riot_start(message: Message, state: FSMContext) -> None:
@@ -1367,11 +1412,11 @@ async def riot_start(message: Message, state: FSMContext) -> None:
 async def riot_save(message: Message, state: FSMContext) -> None:
     ref = (message.text or "").strip()
     if "#" not in ref:
-        await message.answer("❌ Riot ID должен содержать #\nПример: Nickname#TAG")
+        await message.answer("❌ Riot ID должен быть в формате Nickname#TAG")
         return
     await backend.post("/account/link/riot", message.from_user.id, {"account_ref": ref})
     await state.set_state(SettingsState.menu)
-    await message.answer("✅ Riot ID сохранён!", reply_markup=ACCOUNT_DATA_KB)
+    await _show_account_dashboard(message, message.from_user.id, "✅ Riot ID сохранён.")
 
 
 @router.message(F.text == "Faceit")
@@ -1388,64 +1433,47 @@ async def faceit_save(message: Message, state: FSMContext) -> None:
         return
     await backend.post("/account/link/faceit", message.from_user.id, {"account_ref": ref})
     await state.set_state(SettingsState.menu)
-    await message.answer("Faceit сохранён ✅", reply_markup=ACCOUNT_DATA_KB)
+    await _show_account_dashboard(message, message.from_user.id, "✅ FACEIT сохранён.")
 
 
 @router.message(F.text == "Steam")
 async def steam_start(message: Message, state: FSMContext) -> None:
-    await state.set_state(SettingsState.steam)
-    await message.answer("Введи Steam ID (steam64 или vanity URL):", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(SettingsState.menu)
+    await message.answer("Сейчас в боте поддерживаются только Riot ID и FACEIT.", reply_markup=ACCOUNT_DATA_KB)
 
 
 @router.message(SettingsState.steam)
 async def steam_save(message: Message, state: FSMContext) -> None:
-    ref = (message.text or "").strip()
-    if len(ref) < 2:
-        await message.answer("❌ Steam ID слишком короткий")
-        return
-    await backend.post("/account/link/steam", message.from_user.id, {"account_ref": ref})
     await state.set_state(SettingsState.menu)
-    await message.answer("✅ Steam сохранён!", reply_markup=ACCOUNT_DATA_KB)
+    await message.answer("Сейчас в боте поддерживаются только Riot ID и FACEIT.", reply_markup=ACCOUNT_DATA_KB)
 
 
 @router.message(F.text == "BattleTag")
 async def battletag_start(message: Message, state: FSMContext) -> None:
-    await state.set_state(SettingsState.blizzard)
-    await message.answer("Введи BattleTag (Name#1234):", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(SettingsState.menu)
+    await message.answer("Сейчас в боте поддерживаются только Riot ID и FACEIT.", reply_markup=ACCOUNT_DATA_KB)
 
 
 @router.message(SettingsState.blizzard)
 async def battletag_save(message: Message, state: FSMContext) -> None:
-    ref = (message.text or "").strip()
-    if len(ref) < 2:
-        await message.answer("❌ BattleTag слишком короткий")
-        return
-    await backend.post("/account/link/blizzard", message.from_user.id, {"account_ref": ref})
     await state.set_state(SettingsState.menu)
-    await message.answer("✅ BattleTag сохранён!", reply_markup=ACCOUNT_DATA_KB)
+    await message.answer("Сейчас в боте поддерживаются только Riot ID и FACEIT.", reply_markup=ACCOUNT_DATA_KB)
 
 
 @router.message(F.text == "Epic Games")
 async def epic_start(message: Message, state: FSMContext) -> None:
-    await state.set_state(SettingsState.epic)
-    await message.answer("Введи Epic Games ник:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(SettingsState.menu)
+    await message.answer("Сейчас в боте поддерживаются только Riot ID и FACEIT.", reply_markup=ACCOUNT_DATA_KB)
 
 
 @router.message(SettingsState.epic)
 async def epic_save(message: Message, state: FSMContext) -> None:
-    ref = (message.text or "").strip()
-    if len(ref) < 2:
-        await message.answer("❌ Ник слишком короткий")
-        return
-    await backend.post("/account/link/epic", message.from_user.id, {"account_ref": ref})
     await state.set_state(SettingsState.menu)
-    await message.answer("✅ Epic Games сохранён!", reply_markup=ACCOUNT_DATA_KB)
+    await message.answer("Сейчас в боте поддерживаются только Riot ID и FACEIT.", reply_markup=ACCOUNT_DATA_KB)
 
 
 @router.message(F.text == "🔄 Обновить статистику")
 async def refresh_stats(message: Message) -> None:
-    import httpx
-
     await message.answer("🔄 Обновляю статистику…")
     try:
         result = await backend.post("/account/refresh-stats", message.from_user.id)
@@ -1455,28 +1483,7 @@ async def refresh_stats(message: Message) -> None:
             await message.answer(f"⏳ {detail}", reply_markup=ACCOUNT_DATA_KB)
             return
         raise
-
-    if result.get("ok"):
-        rank = result.get("rank") or "—"
-        score = result.get("unified_score", 0)
-        kd = result.get("kd")
-        wr = result.get("winrate")
-        kd_str = f"{kd:.2f}" if kd else "—"
-        wr_str = f"{wr:.1f}%" if wr else "—"
-        await message.answer(
-            f"✅ Обновлено!\nRank: {rank}\nK/D: {kd_str} | Win%: {wr_str}\n🏆 Score: {score}",
-            reply_markup=ACCOUNT_DATA_KB,
-        )
-    else:
-        error = result.get("error", "unknown")
-        label = result.get("label") or result.get("provider", "")
-        msg_map = {
-            "no_profile": "Сначала создай анкету",
-            "no_linked_account": f"Привяжи аккаунт: {label}",
-            "api_fetch_failed": "❌ Не удалось получить данные. Проверь ID и попробуй снова.",
-            "unsupported_game": f"Игра «{result.get('game')}» пока не поддерживается",
-        }
-        await message.answer(f"⚠️ {msg_map.get(error, error)}", reply_markup=ACCOUNT_DATA_KB)
+    await _show_account_dashboard(message, message.from_user.id, _refresh_result_text(result))
 
 
 @router.message(F.text == "⬅️ Назад")

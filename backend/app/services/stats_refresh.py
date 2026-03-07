@@ -1,8 +1,4 @@
-"""Unified stats refresh service.
-
-Determines which API to call based on the user's game + linked accounts,
-then writes the result into the Stats table.
-"""
+"""Unified stats refresh service for the currently supported games."""
 
 from __future__ import annotations
 
@@ -18,47 +14,28 @@ logger = logging.getLogger(__name__)
 
 GAME_PROVIDER_MAP = {
     "valorant": "riot",
-    "cs2": "faceit",  # Primary: Faceit for ELO; fallback: Steam
-    "dota 2": "steam",
-    "league of legends": "riot",
-    "apex legends": "steam",
-    "overwatch 2": "blizzard",
-    "fortnite": "epic",
+    "cs2": "faceit",
 }
-
-# CS2 accepts multiple providers — Faceit (primary) or Steam (fallback)
-CS2_PROVIDERS = ["faceit", "steam"]
 
 PROVIDER_LABELS = {
     "riot": "Riot ID (Name#Tag)",
-    "steam": "Steam ID / ссылка",
-    "faceit": "Faceit никнейм",
-    "blizzard": "BattleTag (Name#1234)",
-    "epic": "Epic Games ник",
+    "faceit": "FACEIT nickname",
 }
 
 
-async def _find_account(db: AsyncSession, user_id: int, providers: list[str]) -> tuple[ExternalAccount | None, str | None]:
-    """Find the first linked account from a list of providers."""
-    for provider in providers:
-        ext = (
-            await db.execute(
-                select(ExternalAccount).where(
-                    ExternalAccount.user_id == user_id,
-                    ExternalAccount.provider == provider,
-                )
+async def _find_account(db: AsyncSession, user_id: int, provider: str) -> ExternalAccount | None:
+    return (
+        await db.execute(
+            select(ExternalAccount).where(
+                ExternalAccount.user_id == user_id,
+                ExternalAccount.provider == provider,
             )
-        ).scalar_one_or_none()
-        if ext:
-            return ext, provider
-    return None, None
+        )
+    ).scalar_one_or_none()
 
 
 async def refresh_user_stats(db: AsyncSession, user_id: int) -> dict:
-    """Pull live stats from external APIs and update the Stats row.
-
-    Returns a dict with status info for the caller.
-    """
+    """Pull live stats from external APIs and update the Stats row."""
     profile = (await db.execute(select(Profile).where(Profile.user_id == user_id))).scalar_one_or_none()
     if not profile:
         return {"ok": False, "error": "no_profile"}
@@ -68,71 +45,38 @@ async def refresh_user_stats(db: AsyncSession, user_id: int) -> dict:
         return {"ok": False, "error": "no_game"}
 
     game_lower = game.name.lower()
-
-    if game_lower not in GAME_PROVIDER_MAP:
+    provider = GAME_PROVIDER_MAP.get(game_lower)
+    if not provider:
         return {"ok": False, "error": "unsupported_game", "game": game.name}
 
-    # For CS2: check multiple providers (faceit first, then steam)
-    if game_lower == "cs2":
-        ext, found_provider = await _find_account(db, user_id, CS2_PROVIDERS)
-    else:
-        needed_provider = GAME_PROVIDER_MAP[game_lower]
-        ext, found_provider = await _find_account(db, user_id, [needed_provider])
-
+    ext = await _find_account(db, user_id, provider)
     if not ext:
-        # Suggest the primary provider for the error message
-        primary = GAME_PROVIDER_MAP[game_lower]
-        label = PROVIDER_LABELS.get(primary, primary)
-        if game_lower == "cs2":
-            label = "Faceit никнейм или Steam ID"
-        return {"ok": False, "error": "no_linked_account", "provider": primary, "label": label}
+        return {
+            "ok": False,
+            "error": "no_linked_account",
+            "provider": provider,
+            "label": PROVIDER_LABELS.get(provider, provider),
+        }
 
     account_ref = ext.account_ref
     fetched = None
 
     if game_lower == "valorant":
         from app.services.stats_valorant import fetch_valorant_stats
+
         fetched = await fetch_valorant_stats(account_ref)
-
-    elif game_lower == "dota 2":
-        from app.services.stats_dota import fetch_dota_stats
-        fetched = await fetch_dota_stats(account_ref)
-
     elif game_lower == "cs2":
-        if found_provider == "faceit":
-            from app.services.stats_faceit import fetch_faceit_stats
-            fetched = await fetch_faceit_stats(account_ref)
-        if not fetched:
-            # Try steam as fallback
-            steam_ext, _ = await _find_account(db, user_id, ["steam"])
-            if steam_ext:
-                from app.services.stats_steam import fetch_cs2_stats
-                fetched = await fetch_cs2_stats(steam_ext.account_ref)
+        from app.services.stats_faceit import fetch_faceit_stats
 
-    elif game_lower == "apex legends":
-        from app.services.stats_steam import fetch_cs2_stats
-        fetched = await fetch_cs2_stats(account_ref)
-
-    elif game_lower == "league of legends":
-        from app.services.stats_lol import fetch_lol_stats
-        fetched = await fetch_lol_stats(account_ref)
-
-    elif game_lower == "overwatch 2":
-        from app.services.stats_ow2 import fetch_ow2_stats
-        fetched = await fetch_ow2_stats(account_ref)
-
-    elif game_lower == "fortnite":
-        from app.services.stats_fortnite import fetch_fortnite_stats
-        fetched = await fetch_fortnite_stats(account_ref)
+        fetched = await fetch_faceit_stats(account_ref)
 
     if not fetched:
-        # Special case for Valorant: account exists but no matches yet
         if game_lower == "valorant":
             return {
                 "ok": False,
                 "error": "no_match_history",
                 "game": game.name,
-                "message": "Аккаунт найден, но нет сыгранных матчей. Сыграй хотя бы одну игру в Valorant."
+                "message": "Аккаунт найден, но в Valorant пока нет матчей для статистики.",
             }
         return {"ok": False, "error": "api_fetch_failed", "game": game.name}
 
@@ -152,20 +96,23 @@ async def refresh_user_stats(db: AsyncSession, user_id: int) -> dict:
     stats.source = fetched.source
     stats.verified = fetched.verified
     stats.source_status = "ok"
-
-    # Compute unified score and tier id for leaderboard / matching
     stats.unified_score = compute_unified_score(game.name, stats.rank_name, stats.rank_points)
     stats.rank_tier_id = get_rank_tier_id(game.name, stats.rank_name)
 
     await db.commit()
+    await db.refresh(stats)
 
     return {
         "ok": True,
         "game": game.name,
+        "provider": provider,
+        "account_ref": account_ref,
         "rank": stats.rank_name,
         "rank_points": stats.rank_points,
         "unified_score": stats.unified_score,
         "kd": stats.kd,
         "winrate": stats.winrate,
         "source": stats.source,
+        "verified": stats.verified,
+        "updated_at": stats.updated_at.isoformat() if stats.updated_at else None,
     }

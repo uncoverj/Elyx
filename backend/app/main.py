@@ -42,20 +42,15 @@ app.add_middleware(
 
 
 _background_tasks: list[asyncio.Task] = []
-SUPPORTED_ACCOUNT_PROVIDERS = ("riot", "steam", "faceit", "blizzard", "epic")
+SUPPORTED_ACCOUNT_PROVIDERS = ("riot", "faceit")
 SUPPORTED_GAMES = (
     "Valorant",
     "CS2",
-    "Dota 2",
-    "League of Legends",
-    "Fortnite",
-    "Apex Legends",
-    "PUBG",
-    "Call of Duty / Warzone",
-    "Rainbow Six Siege",
-    "Overwatch 2",
-    "Other",
 )
+PROVIDER_TITLES = {
+    "riot": "Riot ID",
+    "faceit": "FACEIT",
+}
 
 
 @app.on_event("startup")
@@ -70,11 +65,14 @@ async def seed_games() -> None:
     from app.database import SessionLocal
 
     async with SessionLocal() as session:
-        existing_names = set((await session.execute(select(Game.name))).scalars().all())
-        missing_games = [Game(name=name) for name in SUPPORTED_GAMES if name not in existing_names]
+        existing_games = (await session.execute(select(Game))).scalars().all()
+        existing_by_name = {game.name: game for game in existing_games}
+        missing_games = [Game(name=name, is_active=True) for name in SUPPORTED_GAMES if name not in existing_by_name]
         if missing_games:
             session.add_all(missing_games)
-            await session.commit()
+        for game in existing_games:
+            game.is_active = game.name in SUPPORTED_GAMES
+        await session.commit()
 
     # Start background stats refresh loop (every 30 min)
     task = asyncio.create_task(background_refresh_loop(SessionLocal, interval_minutes=30))
@@ -578,12 +576,53 @@ async def list_linked_accounts(
     return [
         {
             "provider": provider,
+            "title": PROVIDER_TITLES.get(provider, provider.title()),
             "account_ref": by_provider[provider].account_ref if provider in by_provider else None,
             "connected": provider in by_provider,
             "verified": bool(by_provider[provider].verified) if provider in by_provider else False,
         }
         for provider in SUPPORTED_ACCOUNT_PROVIDERS
     ]
+
+
+@app.get("/account/overview")
+async def account_overview(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await build_profile_out(db, current_user.id)
+    rows = (
+        await db.execute(
+            select(ExternalAccount).where(ExternalAccount.user_id == current_user.id)
+        )
+    ).scalars().all()
+    by_provider = {row.provider: row for row in rows}
+
+    recommended_provider = None
+    if profile:
+        game_name = profile.game_name.lower()
+        if game_name == "valorant":
+            recommended_provider = "riot"
+        elif game_name == "cs2":
+            recommended_provider = "faceit"
+
+    accounts = [
+        {
+            "provider": provider,
+            "title": PROVIDER_TITLES.get(provider, provider.title()),
+            "account_ref": by_provider[provider].account_ref if provider in by_provider else None,
+            "connected": provider in by_provider,
+            "verified": bool(by_provider[provider].verified) if provider in by_provider else False,
+            "recommended": provider == recommended_provider,
+        }
+        for provider in SUPPORTED_ACCOUNT_PROVIDERS
+    ]
+    return {
+        "profile": profile,
+        "accounts": accounts,
+        "recommended_provider": recommended_provider,
+        "supported_games": list(SUPPORTED_GAMES),
+    }
 
 
 @app.post("/actions/block")
