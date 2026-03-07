@@ -61,12 +61,22 @@ async def main() -> None:
             "BACKEND_URL points to localhost inside Railway. "
             "Set BACKEND_URL=https://elyx-production.up.railway.app in the bot service env vars."
         )
-    backend_ok = await _assert_backend_available(settings.backend_url)
-    if not backend_ok and settings.strict_backend_check:
-        raise RuntimeError(
-            "Backend is unreachable and STRICT_BACKEND_CHECK=true. "
-            "Set BACKEND_URL correctly or disable strict check."
-        )
+    if settings.strict_backend_check:
+        backend_ok = await _assert_backend_available(settings.backend_url)
+        if not backend_ok:
+            raise RuntimeError(
+                "Backend is unreachable and STRICT_BACKEND_CHECK=true. "
+                "Set BACKEND_URL correctly or disable strict check."
+            )
+    else:
+        try:
+            async with httpx.AsyncClient(timeout=2.5) as client:
+                response = await client.get(f"{settings.backend_url.rstrip('/')}/health")
+                response.raise_for_status()
+                backend_ok = True
+        except httpx.HTTPError as exc:
+            backend_ok = False
+            logging.warning("Backend quick health probe failed: %s", exc)
 
     redis_client: Redis | None = None
     events_isolation = None
